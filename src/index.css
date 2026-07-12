@@ -1,0 +1,185 @@
+/* stylelint-disable */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.25rem;
+
+    /* Main surfaces */
+    --background: 213 25% 96%;
+    --foreground: 215 28% 12%;
+
+    /* Cards / containers */
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 12%;
+
+    /* Popovers */
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 12%;
+
+    /* Primary – deep slate navy */
+    --primary: 215 50% 23%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary */
+    --secondary: 213 20% 90%;
+    --secondary-foreground: 215 28% 12%;
+
+    /* Muted */
+    --muted: 213 18% 92%;
+    --muted-foreground: 215 16% 52%;
+
+    /* Accent – very low saturation light tone */
+    --accent: 213 15% 88%;
+    --accent-foreground: 215 28% 12%;
+
+    /* Destructive */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders & inputs */
+    --border: 214 20% 86%;
+    --input: 213 18% 92%;
+    --ring: 215 50% 23%;
+
+    /* Status */
+    --success: 142 69% 36%;
+    --warning: 38 92% 50%;
+    --info: 210 79% 46%;
+
+    /* Chart */
+    --chart-1: 215 65% 40%;
+    --chart-2: 160 55% 38%;
+    --chart-3: 38 87% 50%;
+    --chart-4: 275 60% 50%;
+    --chart-5: 12 76% 55%;
+
+    /* Sidebar – deep navy */
+    --sidebar-background: 215 50% 16%;
+    --sidebar-foreground: 210 30% 88%;
+    --sidebar-primary: 210 100% 68%;
+    --sidebar-primary-foreground: 215 50% 10%;
+    --sidebar-accent: 215 40% 24%;
+    --sidebar-accent-foreground: 210 30% 96%;
+    --sidebar-border: 215 35% 22%;
+    --sidebar-ring: 210 100% 68%;
+
+    /* Shadows */
+    --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+    --shadow-hover: 0 4px 12px 0 rgb(0 0 0 / 0.12);
+  }
+
+  .dark {
+    --background: 215 28% 8%;
+    --foreground: 210 25% 92%;
+    --card: 215 28% 11%;
+    --card-foreground: 210 25% 92%;
+    --popover: 215 28% 11%;
+    --popover-foreground: 210 25% 92%;
+    --primary: 210 100% 62%;
+    --primary-foreground: 215 50% 10%;
+    --secondary: 215 22% 18%;
+    --secondary-foreground: 210 25% 92%;
+    --muted: 215 22% 16%;
+    --muted-foreground: 215 16% 58%;
+    --accent: 215 20% 14%;
+    --accent-foreground: 210 25% 92%;
+    --destructive: 0 62% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 215 22% 20%;
+    --input: 215 22% 18%;
+    --ring: 210 100% 62%;
+    --success: 142 60% 40%;
+    --warning: 38 85% 52%;
+    --info: 210 75% 52%;
+    --chart-1: 220 70% 55%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 38 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 215 35% 10%;
+    --sidebar-foreground: 210 25% 88%;
+    --sidebar-primary: 210 100% 68%;
+    --sidebar-primary-foreground: 215 50% 10%;
+    --sidebar-accent: 215 30% 16%;
+    --sidebar-accent-foreground: 210 25% 96%;
+    --sidebar-border: 215 28% 16%;
+    --sidebar-ring: 210 100% 68%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar { width: 6px; background: transparent; }
+  *::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+
+  ::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
+  }
+input,
+textarea,
+select,
+input.\!text-gray-900,
+textarea.\!text-gray-900,
+select.\!text-gray-900,
+input.text-gray-900,
+textarea.text-gray-900,
+select.text-gray-900 {
+  color: hsl(var(--foreground)) !important;
+}
+
+input::placeholder,
+textarea::placeholder,
+select::placeholder,
+input.placeholder\:text-gray-600::placeholder,
+textarea.placeholder\:text-gray-600::placeholder,
+select.placeholder\:text-gray-600::placeholder {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 1;
+}
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "tnum";
+  }
+}
+
+@layer components {
+  .erp-table-row {
+    @apply transition-colors duration-0;
+  }
+  .erp-table-row:hover {
+    background-color: hsl(var(--muted));
+  }
+  .status-badge-success {
+    @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-medium;
+    background-color: hsl(142 69% 36% / 0.12);
+    color: hsl(142 69% 28%);
+  }
+  .status-badge-warning {
+    @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-medium;
+    background-color: hsl(38 92% 50% / 0.12);
+    color: hsl(38 72% 32%);
+  }
+  .status-badge-danger {
+    @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-medium;
+    background-color: hsl(0 72% 51% / 0.1);
+    color: hsl(0 72% 40%);
+  }
+  .status-badge-info {
+    @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-medium;
+    background-color: hsl(210 79% 46% / 0.1);
+    color: hsl(210 79% 34%);
+  }
+  .status-badge-neutral {
+    @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-medium;
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+  }
+}
