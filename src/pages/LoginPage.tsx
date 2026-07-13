@@ -22,7 +22,19 @@ export const LoginPage: React.FC = () => {
     const email = username.includes('@') ? username : `${username}@miaoda.com`;
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      const msg = error.message.toLowerCase();
+      if (msg.includes('email login') || msg.includes('email provider') || msg.includes('disabled')) {
+        toast.error('Email login is disabled. Contact your administrator to enable the Email provider in Supabase Authentication settings.');
+      } else if (msg.includes('email not confirmed')) {
+        toast.error('Please confirm your email address before logging in. Check your inbox for the confirmation link.');
+      } else if (msg.includes('invalid login credentials')) {
+        toast.error('Invalid email or password. Please try again.');
+      } else {
+        toast.error(error.message);
+      }
+      return;
+    }
     toast.success('Login successful');
     navigate('/dashboard');
   };

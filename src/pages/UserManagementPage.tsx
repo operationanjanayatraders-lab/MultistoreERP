@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Save, Check, Shield } from 'lucide-react';
 import { MainLayout } from '@/components/layouts/MainLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/db/supabase';
-import { getProfiles, createUserProfile, getDesignations, upsertDesignation, deleteDesignation } from '@/lib/api';
+import { getProfiles, getDesignations, upsertDesignation, deleteDesignation } from '@/lib/api';
 import type { Profile } from '@/types/types';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -84,20 +84,36 @@ export const UserManagementPage: React.FC = () => {
     e.preventDefault();
     if (!newUser.email || !newUser.password) { toast.error('Email and password required'); return; }
     setCreatingUser(true);
-    const { data, error } = await supabase.auth.admin.createUser({
-      email: newUser.email, password: newUser.password, email_confirm: true,
-    });
-    if (error) {
-      const { error: signupError } = await supabase.auth.signUp({ email: newUser.email, password: newUser.password });
-      if (signupError) { toast.error(signupError.message); setCreatingUser(false); return; }
+
+    const session = await supabase.auth.getSession();
+    const accessToken = session?.data?.session?.access_token;
+    if (!accessToken) { toast.error('Not authenticated'); setCreatingUser(false); return; }
+
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          email: newUser.email,
+          password: newUser.password,
+          full_name: newUser.full_name,
+          designation: newUser.designation || undefined,
+          role: newUser.role,
+        }),
+      }
+    );
+
+    const result = await res.json();
+    if (!res.ok) {
+      toast.error(result.error || 'Failed to create user');
+      setCreatingUser(false);
+      return;
     }
-    if (data?.user) {
-      await createUserProfile({
-        id: data.user.id, email: newUser.email,
-        full_name: newUser.full_name, designation: newUser.designation,
-        role: newUser.role as 'user' | 'admin',
-      });
-    }
+
     toast.success('User created successfully');
     setNewUser({ email: '', password: '', full_name: '', designation: '', role: 'user' });
     setCreatingUser(false);
@@ -155,14 +171,14 @@ export const UserManagementPage: React.FC = () => {
         <div className="border-b border-border">
           <div className="flex overflow-x-auto whitespace-nowrap gap-1">
             {tabs.map(t => (
-              <a key={t.id} href={t.path}
+              <Link key={t.id} to={t.path}
                 className={cn('px-4 py-2 text-sm font-medium transition-colors shrink-0',
                   activeTab === t.id
                     ? 'border-b-2 border-primary text-primary'
                     : 'text-muted-foreground hover:text-foreground'
                 )}>
                 {t.label}
-              </a>
+              </Link>
             ))}
           </div>
         </div>
