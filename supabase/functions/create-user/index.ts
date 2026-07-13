@@ -6,6 +6,7 @@ interface CreateUserPayload {
   password: string;
   full_name?: string;
   designation?: string;
+  department_id?: string;
   role?: 'user' | 'admin';
 }
 
@@ -59,6 +60,7 @@ serve(async (req) => {
         email: body.email,
         full_name: body.full_name || null,
         designation: body.designation || null,
+        department_id: body.department_id || null,
         role: body.role || 'user',
       });
 

@@ -4,7 +4,7 @@ import { Plus, Pencil, Trash2, Save, Check, Shield } from 'lucide-react';
 import { MainLayout } from '@/components/layouts/MainLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/db/supabase';
-import { getProfiles, getDesignations, upsertDesignation, deleteDesignation } from '@/lib/api';
+import { getProfiles, getDesignations, upsertDesignation, deleteDesignation, getDepartments, upsertDepartment, deleteDepartment } from '@/lib/api';
 import type { Profile } from '@/types/types';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -36,9 +36,10 @@ export const UserManagementPage: React.FC = () => {
   // Shared state
   const [users, setUsers] = useState<Profile[]>([]);
   const [designations, setDesignations] = useState<{ id: string; name: string }[]>([]);
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
 
   // Create User
-  const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', designation: '', role: 'user' });
+  const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', designation: '', department_id: '', role: 'user' });
   const [creatingUser, setCreatingUser] = useState(false);
 
   // Manage Users
@@ -50,6 +51,11 @@ export const UserManagementPage: React.FC = () => {
   const [newDesig, setNewDesig] = useState('');
   const [editDesigId, setEditDesigId] = useState<string | null>(null);
   const [editDesigName, setEditDesigName] = useState('');
+
+  // Departments (sub-section of manage)
+  const [newDept, setNewDept] = useState('');
+  const [editDeptId, setEditDeptId] = useState<string | null>(null);
+  const [editDeptName, setEditDeptName] = useState('');
 
   // Rights
   const [rightsUser, setRightsUser] = useState('');
@@ -64,11 +70,21 @@ export const UserManagementPage: React.FC = () => {
     const { data } = await getDesignations();
     setDesignations(data);
   };
+  const loadDepartments = async () => {
+    const { data } = await getDepartments();
+    setDepartments(data);
+  };
 
   useEffect(() => {
     loadUsers();
     loadDesignations();
+    loadDepartments();
   }, []);
+
+  const getDeptName = (id: string | null) => {
+    if (!id) return '—';
+    return departments.find(d => d.id === id)?.name || '—';
+  };
 
   const loadUserRights = (uid: string) => {
     setRightsUser(uid);
@@ -102,6 +118,7 @@ export const UserManagementPage: React.FC = () => {
           password: newUser.password,
           full_name: newUser.full_name,
           designation: newUser.designation || undefined,
+          department_id: newUser.department_id || undefined,
           role: newUser.role,
         }),
       }
@@ -115,13 +132,13 @@ export const UserManagementPage: React.FC = () => {
     }
 
     toast.success('User created successfully');
-    setNewUser({ email: '', password: '', full_name: '', designation: '', role: 'user' });
+    setNewUser({ email: '', password: '', full_name: '', designation: '', department_id: '', role: 'user' });
     setCreatingUser(false);
     loadUsers();
   };
 
   // ── Edit User ─────────────────────────────────────────────
-  const openEdit = (u: Profile) => { setEditUser(u); setEditForm({ full_name: u.full_name, designation: u.designation, role: u.role }); setEditOpen(true); };
+  const openEdit = (u: Profile) => { setEditUser(u); setEditForm({ full_name: u.full_name, designation: u.designation, department_id: u.department_id, role: u.role }); setEditOpen(true); };
   const handleEditSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editUser) return;
@@ -216,6 +233,14 @@ export const UserManagementPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
+                  <label className={lbl}>Department</label>
+                  <select className={inp} value={newUser.department_id}
+                    onChange={e => setNewUser(u => ({ ...u, department_id: e.target.value }))}>
+                    <option value="">Select department</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+                <div>
                   <label className={lbl}>Role</label>
                   <select className={inp} value={newUser.role}
                     onChange={e => setNewUser(u => ({ ...u, role: e.target.value }))}>
@@ -282,6 +307,57 @@ export const UserManagementPage: React.FC = () => {
                 ))}
               </div>
             </div>
+
+            {/* Departments management */}
+            <div className="rounded border border-border bg-card p-5 shadow-sm">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Manage Departments</h3>
+              <div className="flex gap-2 mb-3">
+                <input className={inp} value={newDept} onChange={e => setNewDept(e.target.value)}
+                  placeholder="New department name" />
+                <button type="button"
+                  onClick={async () => {
+                    if (!newDept.trim()) return;
+                    const { error } = await upsertDepartment({ name: newDept.trim() });
+                    if (error) { toast.error(error.message); return; }
+                    toast.success('Department added');
+                    setNewDept('');
+                    loadDepartments();
+                  }}
+                  className="shrink-0 inline-flex items-center gap-1 rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90">
+                  <Plus size={14} /> Add
+                </button>
+              </div>
+              <div className="rounded border border-border divide-y divide-border">
+                {departments.length === 0 ? (
+                  <p className="px-4 py-5 text-center text-sm text-muted-foreground">No departments yet</p>
+                ) : departments.map(d => (
+                  <div key={d.id} className="flex items-center justify-between px-4 py-2.5">
+                    {editDeptId === d.id ? (
+                      <input value={editDeptName} onChange={e => setEditDeptName(e.target.value)}
+                        className="flex-1 rounded border border-input bg-input px-2 py-1 text-sm focus:border-primary focus:outline-none mr-2" />
+                    ) : (
+                      <span className="text-sm">{d.name}</span>
+                    )}
+                    <div className="flex gap-1 shrink-0">
+                      {editDeptId === d.id ? (
+                        <button type="button" onClick={async () => {
+                          await upsertDepartment({ id: d.id, name: editDeptName });
+                          setEditDeptId(null); loadDepartments();
+                        }} className="rounded p-1 text-primary hover:bg-muted"><Check size={14} /></button>
+                      ) : (
+                        <button type="button" onClick={() => { setEditDeptId(d.id); setEditDeptName(d.name); }}
+                          className="rounded p-1 text-muted-foreground hover:bg-muted"><Pencil size={14} /></button>
+                      )}
+                      <button type="button" onClick={async () => {
+                        await deleteDepartment(d.id); toast.success('Deleted'); loadDepartments();
+                      }} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </form>
         )}
 
@@ -292,19 +368,21 @@ export const UserManagementPage: React.FC = () => {
               <table className="w-full min-w-max text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50">
-                    {['Name', 'Email', 'Designation', 'Role', 'Actions'].map(h => (
+                    {['Name', 'Email', 'Designation', 'Department', 'Role', 'Actions'].map(h => (
                       <th key={h} className="whitespace-nowrap px-4 py-3 text-left text-xs font-medium text-muted-foreground">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {users.length === 0 ? (
-                    <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No users found.</td></tr>
-                  ) : users.map(u => (
+                  {users.length === 0 && (
+                    <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">No users found.</td></tr>
+                  )}
+                  {users.length > 0 && users.map(u => (
                     <tr key={u.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
                       <td className="whitespace-nowrap px-4 py-3 font-medium text-foreground">{u.full_name || '—'}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{u.email}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{u.designation || '—'}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{getDeptName(u.department_id)}</td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
                           u.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
@@ -382,6 +460,14 @@ export const UserManagementPage: React.FC = () => {
                   onChange={e => setEditForm(f => ({ ...f, designation: e.target.value }))}>
                   <option value="">Select designation</option>
                   {designations.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={lbl}>Department</label>
+                <select className={inp} value={editForm.department_id ?? ''}
+                  onChange={e => setEditForm(f => ({ ...f, department_id: e.target.value }))}>
+                  <option value="">Select department</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
               <div>
