@@ -10,10 +10,11 @@ import {
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { supabase } from '@/db/supabase';
 import { MainLayout } from '@/components/layouts/MainLayout';
 import {
   getInventoryItems, getInventorySummaryCards, getInventoryStockDetail,
-  getBrands, getWarehouses, getBranches, upsertInventoryStock, getProducts,
+  getBrands, getWarehouses, getBranches, upsertInventoryStock,
   upsertProduct
 } from '@/lib/api';
 import type { StockSummary, InventorySummaryCards, Warehouse, Branch } from '@/types/types';
@@ -165,7 +166,9 @@ export const InventoryPage: React.FC = () => {
     getWarehouses().then(r => { setWarehouses(r.data); setAllWarehouses(r.data.map(w => ({ name: w.name, id: w.id }))); });
     getBrands().then(r => setBrands(r));
     getBranches().then(r => setBranches(r.data));
-    getProducts(1, 10000).then(r => setAllProducts(r.data.map(p => ({ sku: p.sku, barcode: p.barcode, id: p.id }))));
+    supabase.from('products').select('id, sku, barcode').then(r => {
+      if (r.data) setAllProducts(r.data.map(p => ({ sku: p.sku, barcode: p.barcode, id: p.id })));
+    });
   }, []);
 
   // ── Load Data ──────────────────────────────────────
