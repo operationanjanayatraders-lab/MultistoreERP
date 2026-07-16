@@ -373,7 +373,7 @@ export const getInventoryItems = async (opts: {
 
   // Get products
   let prodQuery = supabase.from('products')
-    .select('id, sku, barcode, name, description, brand, unit, purchase_price, reorder_level, product_categories(name)')
+    .select('id, sku, barcode, name, description, brand, unit, purchase_price, reorder_level, opening_stock, product_categories(name)')
     .eq('is_active', true)
     .order('name');
 
@@ -497,8 +497,8 @@ export const getInventoryItems = async (opts: {
       if (hasTx) continue;
     }
 
-    // Opening qty from OPENING transactions
-    const openingQty = 0; // Simplified - would need date filtering
+    // Opening qty from products.opening_stock
+    const openingQty = (p as any).opening_stock || 0;
 
     const get = (m: Map<string, number>) => m.get(pid) || 0;
     const inwardsVal = get(txByType['PURCHASE']);
@@ -514,7 +514,7 @@ export const getInventoryItems = async (opts: {
     const pktComponent = (bd.pkt_std > 0 && bd.pkt_qty > 0) ? bd.pkt_std * bd.pkt_qty : 0;
     const inwardsDisplayed = bd.inwards ?? inwardsVal;
     const outwardsDisplayed = bd.outwards ?? get(txByType['SALE']);
-    const closing = boxComponent + pktComponent + (bd.loose_cut_qty || 0) + inwardsDisplayed - outwardsDisplayed;
+    const closing = openingQty + boxComponent + pktComponent + (bd.loose_cut_qty || 0) + inwardsDisplayed - outwardsDisplayed;
     const stockValue = closing * (p.purchase_price || 0);
 
     summaries.push({

@@ -648,11 +648,11 @@ export const InventoryPage: React.FC = () => {
     for (const i of items) {
       const boxComponent = (i.box_std > 0 && i.box_qty > 0) ? i.box_std * i.box_qty : 0;
       const pktComponent = (i.pkt_std > 0 && i.pkt_qty > 0) ? i.pkt_std * i.pkt_qty : 0;
-      const expected = boxComponent + pktComponent + (i.loose_cut_qty || 0) + i.inwards - i.outwards;
+      const expected = i.opening_qty + boxComponent + pktComponent + (i.loose_cut_qty || 0) + i.inwards - i.outwards;
       if (Math.abs(expected - i.closing_stock) > 0.001) {
         mismatches.push({
           sku: i.sku, name: i.name, expected, displayed: i.closing_stock,
-          breakdown: `box=${i.box_std}x${i.box_qty} pkt=${i.pkt_std}x${i.pkt_qty} loose=${i.loose_cut_qty} in=${i.inwards} out=${i.outwards}`,
+          breakdown: `open=${i.opening_qty} box=${i.box_std}x${i.box_qty} pkt=${i.pkt_std}x${i.pkt_qty} loose=${i.loose_cut_qty} in=${i.inwards} out=${i.outwards}`,
         });
       }
     }
