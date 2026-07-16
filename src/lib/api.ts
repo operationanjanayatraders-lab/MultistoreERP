@@ -72,9 +72,10 @@ export const getWarehouses = async () => {
   return { data: Array.isArray(data) ? data as Warehouse[] : [], error };
 };
 
-export const getBranches = async () => {
-  const { data, error } = await supabase
-    .from('branches').select('*, warehouses(id,name)').eq('is_active', true).order('name').limit(50);
+export const getBranches = async (companyId?: string) => {
+  let q = supabase.from('branches').select('*, warehouses(id,name)').eq('is_active', true).order('name').limit(50);
+  if (companyId) q = q.eq('company_id', companyId);
+  const { data, error } = await q;
   return { data: Array.isArray(data) ? data as import('@/types/types').Branch[] : [], error };
 };
 

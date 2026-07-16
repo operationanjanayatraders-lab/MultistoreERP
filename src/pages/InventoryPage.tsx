@@ -139,6 +139,10 @@ export const InventoryPage: React.FC = () => {
   const [warehouseDetail, setWarehouseDetail] = useState<{ warehouse_name: string; quantity: number }[]>([]);
   const [productLocations, setProductLocations] = useState<{ location_code: string; quantity: number; warehouse_name: string }[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [locationForm, setLocationForm] = useState({ warehouse_id: '', location_code: '', quantity: 0 });
+  const [locationFormOpen, setLocationFormOpen] = useState(false);
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
+  const [savingLocation, setSavingLocation] = useState(false);
 
   // ── Import Modal ─────────────────────────────────────
   const [importOpen, setImportOpen] = useState(false);
@@ -151,6 +155,27 @@ export const InventoryPage: React.FC = () => {
 
   // ── Filters ──────────────────────────────────────────
   const [companyId, setCompanyId] = useState('all');
+
+  // ── Cascade: company → branch → warehouse ───────────
+  const filteredBranches = useMemo(() =>
+    companyId === 'all' ? branches : branches.filter(b => b.company_id === companyId),
+    [branches, companyId]
+  );
+  const filteredWarehouses = useMemo(() =>
+    branchId === 'all' ? warehouses : warehouses.filter(w => w.branch_id === branchId),
+    [warehouses, branchId]
+  );
+
+  const handleCompanyChange = useCallback((val: string) => {
+    setCompanyId(val);
+    setBranchId('all');
+    setWarehouseId('all');
+  }, []);
+
+  const handleBranchChange = useCallback((val: string) => {
+    setBranchId(val);
+    setWarehouseId('all');
+  }, []);
 
   // ── Date Quick Buttons ───────────────────────────────
   const setDatePreset = useCallback((preset: string) => {
@@ -224,6 +249,52 @@ export const InventoryPage: React.FC = () => {
     );
     setDetailLoading(false);
   };
+
+  // ── Product Locations CRUD ───────────────────────────
+  const refreshLocations = useCallback(async () => {
+    if (!detailItem) return;
+    const { data } = await supabase.from('product_locations').select('*, warehouses(id,name)').eq('product_id', detailItem.product_id).order('location_code');
+    setProductLocations(
+      (data || []).map(l => ({
+        location_code: (l as Record<string, unknown>).location_code as string,
+        quantity: (l as Record<string, unknown>).quantity as number,
+        warehouse_name: ((l as Record<string, unknown>).warehouses as Record<string, unknown>)?.name as string || '',
+      } as { location_code: string; quantity: number; warehouse_name: string }))
+    );
+  }, [detailItem]);
+
+  const handleEditLocation = useCallback((locCode: string, whName: string, qty: number) => {
+    const wh = warehouses.find(w => w.name === whName);
+    setLocationForm({ warehouse_id: wh?.id || warehouses[0]?.id || '', location_code: locCode, quantity: qty });
+    setEditingLocationId(locCode);
+    setLocationFormOpen(true);
+  }, [warehouses]);
+
+  const handleDeleteLocation = useCallback(async (locCode: string) => {
+    if (!detailItem) return;
+    const { error } = await supabase.from('product_locations').delete()
+      .eq('product_id', detailItem.product_id).eq('location_code', locCode);
+    if (error) { toast.error('Failed to delete location'); return; }
+    toast.success('Location deleted');
+    refreshLocations();
+  }, [detailItem, refreshLocations]);
+
+  const handleSaveLocation = useCallback(async () => {
+    if (!detailItem || !locationForm.location_code || !locationForm.warehouse_id) return;
+    setSavingLocation(true);
+    const { error } = await supabase.from('product_locations').upsert({
+      product_id: detailItem.product_id,
+      warehouse_id: locationForm.warehouse_id,
+      location_code: locationForm.location_code,
+      quantity: locationForm.quantity,
+    }, { onConflict: 'product_id,warehouse_id,location_code' });
+    setSavingLocation(false);
+    if (error) { toast.error('Failed to save location'); return; }
+    toast.success(editingLocationId ? 'Location updated' : 'Location added');
+    setLocationFormOpen(false);
+    setEditingLocationId(null);
+    refreshLocations();
+  }, [detailItem, locationForm, editingLocationId, refreshLocations]);
 
   // ── Export CSV ───────────────────────────────────────
   const exportCSV = () => {
@@ -574,8 +645,8 @@ export const InventoryPage: React.FC = () => {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const companyOptions = useMemo(() => [{ value: 'all', label: 'All Companies' }, ...allCompanies.map(c => ({ value: c.id, label: c.name }))], [allCompanies]);
-  const branchOptions = useMemo(() => [{ value: 'all', label: 'All Branches' }, ...branches.map(b => ({ value: b.id, label: b.name }))], [branches]);
-  const warehouseOptions = useMemo(() => [{ value: 'all', label: 'All Warehouses' }, ...warehouses.map(w => ({ value: w.id, label: w.name }))], [warehouses]);
+  const branchOptions = useMemo(() => [{ value: 'all', label: 'All Branches' }, ...filteredBranches.map(b => ({ value: b.id, label: b.name }))], [filteredBranches]);
+  const warehouseOptions = useMemo(() => [{ value: 'all', label: 'All Warehouses' }, ...filteredWarehouses.map(w => ({ value: w.id, label: w.name }))], [filteredWarehouses]);
   const brandOptions = useMemo(() => [{ value: 'all', label: 'All Brands' }, ...brands.map(b => ({ value: b, label: b }))], [brands]);
 
   return (
@@ -659,8 +730,8 @@ export const InventoryPage: React.FC = () => {
 
           {/* Row 2: Other Filters */}
           <div className="flex flex-wrap items-end gap-3">
-            <FilterDropdown label="Company" value={companyId} options={companyOptions} onChange={setCompanyId} icon={<Building2 size={13} />} />
-            <FilterDropdown label="Branch" value={branchId} options={branchOptions} onChange={setBranchId} icon={<Layers size={13} />} />
+            <FilterDropdown label="Company" value={companyId} options={companyOptions} onChange={handleCompanyChange} icon={<Building2 size={13} />} />
+            <FilterDropdown label="Branch" value={branchId} options={branchOptions} onChange={handleBranchChange} icon={<Layers size={13} />} />
             <FilterDropdown label="Warehouse" value={warehouseId} options={warehouseOptions} onChange={setWarehouseId} icon={<WarehouseIcon size={13} />} />
             <FilterDropdown label="Brand" value={brand} options={brandOptions} onChange={setBrand} icon={<Tag size={13} />} />
             <FilterDropdown label="Stock Status" value={status}
@@ -876,9 +947,15 @@ export const InventoryPage: React.FC = () => {
               </div>
 
               <div>
-                <h3 className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1">
-                  <MapPin size={12} /> Product Locations
-                </h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                    <MapPin size={12} /> Product Locations
+                  </h3>
+                  <button onClick={() => { setLocationForm({ warehouse_id: warehouses[0]?.id || '', location_code: '', quantity: 0 }); setEditingLocationId(null); setLocationFormOpen(true); }}
+                    className="text-xs text-primary hover:underline flex items-center gap-0.5">
+                    + Add Location
+                  </button>
+                </div>
                 <div className="rounded-lg border border-border overflow-hidden">
                   <table className="w-full text-xs">
                     <thead>
@@ -886,22 +963,65 @@ export const InventoryPage: React.FC = () => {
                         <th className="px-3 py-2 text-left font-medium text-muted-foreground">Location</th>
                         <th className="px-3 py-2 text-left font-medium text-muted-foreground">Warehouse</th>
                         <th className="px-3 py-2 text-right font-medium text-muted-foreground">Quantity</th>
+                        <th className="px-3 py-2 w-[50px]" />
                       </tr>
                     </thead>
                     <tbody>
                       {productLocations.length === 0 ? (
-                        <tr><td colSpan={3} className="px-3 py-4 text-center text-muted-foreground">No locations configured</td></tr>
-                      ) : productLocations.map(l => (
-                        <tr key={`${l.location_code}-${l.warehouse_name}`} className="border-b border-border last:border-0">
+                        <tr><td colSpan={4} className="px-3 py-4 text-center text-muted-foreground">No locations configured</td></tr>
+                      ) : productLocations.map((l, i) => (
+                        <tr key={i} className="border-b border-border last:border-0">
                           <td className="px-3 py-2 font-medium">{l.location_code}</td>
                           <td className="px-3 py-2 text-muted-foreground">{l.warehouse_name}</td>
                           <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(l.quantity)}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleEditLocation(l.location_code, l.warehouse_name, l.quantity)}
+                                className="p-0.5 text-muted-foreground hover:text-foreground" title="Edit">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                              </button>
+                              <button onClick={() => handleDeleteLocation(l.location_code)}
+                                className="p-0.5 text-destructive hover:text-destructive/80" title="Delete">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               </div>
+
+              {locationFormOpen && (
+                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                  <h4 className="text-xs font-semibold">{editingLocationId ? 'Edit' : 'Add'} Location</h4>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className={lbl}>Warehouse</label>
+                      <select className={inp} value={locationForm.warehouse_id} onChange={e => setLocationForm(f => ({ ...f, warehouse_id: e.target.value }))}>
+                        {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={lbl}>Location Code</label>
+                      <input className={inp} value={locationForm.location_code} onChange={e => setLocationForm(f => ({ ...f, location_code: e.target.value }))} placeholder="e.g. RACK-A1" />
+                    </div>
+                    <div>
+                      <label className={lbl}>Quantity</label>
+                      <input type="number" className={inp} value={locationForm.quantity} onChange={e => setLocationForm(f => ({ ...f, quantity: Number(e.target.value) }))} />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button className="text-xs text-muted-foreground hover:text-foreground px-2 py-1" onClick={() => setLocationFormOpen(false)}>Cancel</button>
+                    <button className="text-xs bg-primary text-primary-foreground rounded px-3 py-1 hover:opacity-90 disabled:opacity-50"
+                      disabled={savingLocation || !locationForm.location_code || !locationForm.warehouse_id}
+                      onClick={handleSaveLocation}>
+                      {savingLocation ? 'Saving...' : editingLocationId ? 'Update' : 'Add'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1">

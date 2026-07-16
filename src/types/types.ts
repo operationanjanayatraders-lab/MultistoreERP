@@ -53,6 +53,7 @@ export interface Branch {
   location: string | null;
   is_active: boolean;
   created_at: string;
+  company_id?: string | null;
 }
 export interface Warehouse {
   id: string;
@@ -62,9 +63,9 @@ export interface Warehouse {
   contact_person: string | null;
   contact_number: string | null;
   branch_id: string | null;
+  company_id?: string | null;
   is_active: boolean;
   created_at: string;
-  branches?: Branch | null;
 }
 
 export interface ProductCategory {
