@@ -21,7 +21,7 @@ const ProductForm: React.FC<{
   onClose: () => void;
 }> = ({ initial, categories, units, brands, subBrands, groups, onSave, onClose }) => {
   const [form, setForm] = useState<Partial<Product>>({
-    name: '', sku: '', barcode: '', unit: 'pcs',
+    name: '', sku: '', barcode: '', unit: '',
     purchase_price: 0, selling_price: 0, reorder_level: 0,
     is_active: true, description: '', category_id: '',
     brand: '', sub_brand: '', group_name: '',
