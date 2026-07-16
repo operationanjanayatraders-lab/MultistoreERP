@@ -376,12 +376,16 @@ export const InventoryPage: React.FC = () => {
 
         let qtyStr = findCol(row, qtyPatterns);
         if (!qtyStr) {
-          const boxStd = parseFloat(findCol(row, boxStdPatterns)) || 1;
-          const box = parseFloat(findCol(row, boxPatterns)) || 0;
-          const pktStd = parseFloat(findCol(row, pktStdPatterns)) || 1;
-          const pkt = parseFloat(findCol(row, pktPatterns)) || 0;
+          const boxStd = parseFloat(findCol(row, boxStdPatterns)) || 0;
+          const boxQty = parseFloat(findCol(row, boxPatterns)) || 0;
+          const pktStd = parseFloat(findCol(row, pktStdPatterns)) || 0;
+          const pktQty = parseFloat(findCol(row, pktPatterns)) || 0;
           const loose = parseFloat(findCol(row, loosePatterns)) || 0;
-          qtyStr = String(box * boxStd + pkt * pktStd + loose);
+          const inwards = parseFloat(findCol(row, ['inwards', 'inward'])) || 0;
+          const outwards = parseFloat(findCol(row, ['outwards', 'outward'])) || 0;
+          const boxCalc = (boxStd > 0 && boxQty > 0) ? boxStd * boxQty : 0;
+          const pktCalc = (pktStd > 0 && pktQty > 0) ? pktStd * pktQty : 0;
+          qtyStr = String(boxCalc + pktCalc + loose + inwards - outwards);
         }
         const quantity = parseFloat(qtyStr);
 
