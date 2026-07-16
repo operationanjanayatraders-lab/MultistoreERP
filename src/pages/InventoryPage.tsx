@@ -4,12 +4,16 @@ import {
   Package, AlertTriangle, TrendingUp, TrendingDown, Layers, Eye,
   ArrowUpDown, ArrowUp, ArrowDown, Warehouse as WarehouseIcon,
   Tag, FileSpreadsheet, Loader2, AlertCircle,
-  CheckCircle, BarChart3, CalendarDays, ArrowLeftRight
+  CheckCircle, BarChart3, CalendarDays, ArrowLeftRight,
+  Upload, FileDown, FileText
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { MainLayout } from '@/components/layouts/MainLayout';
 import {
   getInventoryItems, getInventorySummaryCards, getInventoryStockDetail,
-  getBrands, getWarehouses, getBranches
+  getBrands, getWarehouses, getBranches, upsertInventoryStock, getProducts
 } from '@/lib/api';
 import type { StockSummary, InventorySummaryCards, Warehouse, Branch } from '@/types/types';
 import { toast } from 'sonner';
@@ -17,8 +21,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from '@/components/ui/dialog';
+import { useAuth } from '@/contexts/AuthContext';
 
 const inp = 'w-full rounded border border-input bg-input px-3 py-2 text-sm !text-gray-900 placeholder:text-gray-600 focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring';
 const lbl = 'mb-1 block text-xs font-medium text-muted-foreground';
@@ -99,6 +104,7 @@ const fmtCurrency = (n: number) => new Intl.NumberFormat('en-IN', { style: 'curr
 
 // ── Main Page ────────────────────────────────────────────
 export const InventoryPage: React.FC = () => {
+  const { user } = useAuth();
   const today = new Date().toISOString().split('T')[0];
   const monthStart = new Date(); monthStart.setDate(1);
   const monthStartStr = monthStart.toISOString().split('T')[0];
@@ -131,6 +137,14 @@ export const InventoryPage: React.FC = () => {
   const [warehouseDetail, setWarehouseDetail] = useState<{ warehouse_name: string; quantity: number }[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // ── Import Modal ─────────────────────────────────────
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResults, setImportResults] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+  const [allProducts, setAllProducts] = useState<{ sku: string; barcode: string | null; id: string }[]>([]);
+  const [allWarehouses, setAllWarehouses] = useState<{ name: string; id: string }[]>([]);
+
   // ── Date Quick Buttons ───────────────────────────────
   const setDatePreset = useCallback((preset: string) => {
     const now = new Date();
@@ -145,11 +159,12 @@ export const InventoryPage: React.FC = () => {
     setToDate(now.toISOString().split('T')[0]);
   }, []);
 
-  // ── Load Warehouses & Brands ─────────────────────────
+  // ── Load Warehouses & Brands & Products ─────────────
   useEffect(() => {
-    getWarehouses().then(r => setWarehouses(r.data));
+    getWarehouses().then(r => { setWarehouses(r.data); setAllWarehouses(r.data.map(w => ({ name: w.name, id: w.id }))); });
     getBrands().then(r => setBrands(r));
     getBranches().then(r => setBranches(r.data));
+    getProducts(1, 10000).then(r => setAllProducts(r.data.map(p => ({ sku: p.sku, barcode: p.barcode, id: p.id }))));
   }, []);
 
   // ── Load Data ──────────────────────────────────────
@@ -202,6 +217,142 @@ export const InventoryPage: React.FC = () => {
     } catch { toast.error('Export failed'); }
   };
 
+  // ── Export Excel ──────────────────────────────────────
+  const exportExcel = () => {
+    try {
+      const rows = items.map(i => ({
+        'Item Code': i.sku,
+        'Barcode': i.barcode || '',
+        'Item Description': i.name,
+        'Brand': i.brand || '',
+        'Opening Qty': i.opening_qty,
+        'Unit Price': i.purchase_price,
+        'Box Std': i.box_std,
+        'Box Qty': i.box_qty,
+        'Pkt Std': i.pkt_std,
+        'Pkt Qty': i.pkt_qty,
+        'Loose/Cut Qty': i.loose_cut_qty,
+        'Inwards': i.inwards,
+        'Outwards': i.outwards,
+        'Closing Stock': i.closing_stock,
+        'Stock Value': i.stock_value,
+        'Status': i.closing_stock <= 0 ? 'Negative' : i.closing_stock === 0 ? 'Out of Stock' : i.closing_stock <= i.reorder_level ? 'Low Stock' : 'In Stock',
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+      XLSX.writeFile(wb, `inventory_${today}.xlsx`);
+      toast.success('Inventory exported to Excel');
+    } catch { toast.error('Excel export failed'); }
+  };
+
+  // ── Export PDF ────────────────────────────────────────
+  const exportPDF = () => {
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      doc.setFontSize(16);
+      doc.text('Inventory Report', 14, 15);
+      doc.setFontSize(9);
+      doc.text(`Date: ${today}`, 14, 22);
+      const tableColumns = ['Item Code', 'Barcode', 'Item Description', 'Brand', 'Opening Qty', 'Unit Price', 'Box Std', 'Box Qty', 'Pkt Std', 'Pkt Qty', 'Loose/Cut', 'Inwards', 'Outwards', 'Closing Stock', 'Stock Value'];
+      const tableRows = items.map(i => [
+        i.sku, i.barcode || '', i.name, i.brand || '',
+        i.opening_qty, i.purchase_price, i.box_std, i.box_qty,
+        i.pkt_std, i.pkt_qty, i.loose_cut_qty,
+        i.inwards, i.outwards, i.closing_stock, i.stock_value.toFixed(2),
+      ]);
+      autoTable(doc, {
+        head: [tableColumns],
+        body: tableRows,
+        startY: 28,
+        styles: { fontSize: 7, cellPadding: 1.5 },
+        headStyles: { fillColor: [59, 130, 246], fontSize: 7, halign: 'center' },
+        columnStyles: { 2: { cellWidth: 35 } },
+        didDrawPage: (data) => {
+          doc.setFontSize(7);
+          doc.text(`Page ${data.pageNumber}`, doc.internal.pageSize.getWidth() - 14, doc.internal.pageSize.getHeight() - 8, { align: 'center' });
+        },
+      });
+      doc.save(`inventory_${today}.pdf`);
+      toast.success('Inventory exported to PDF');
+    } catch { toast.error('PDF export failed'); }
+  };
+
+  // ── Import Excel ──────────────────────────────────────
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setImportFile(file);
+  };
+
+  const processImport = async () => {
+    if (!importFile) { toast.error('Please select a file'); return; }
+    setImporting(true);
+    setImportResults(null);
+    try {
+      const data = await importFile.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json: Record<string, string>[] = XLSX.utils.sheet_to_json(sheet);
+
+      const prodMap = new Map<string, string>();
+      const barcodeMap = new Map<string, string>();
+      for (const p of allProducts) {
+        prodMap.set(p.sku.toLowerCase(), p.id);
+        if (p.barcode) barcodeMap.set(p.barcode.toLowerCase(), p.id);
+      }
+      const whMap = new Map<string, string>();
+      for (const w of allWarehouses) whMap.set(w.name.toLowerCase(), w.id);
+
+      let success = 0;
+      let failed = 0;
+      const errors: string[] = [];
+
+      for (let idx = 0; idx < json.length; idx++) {
+        const row = json[idx];
+        const rowNum = idx + 2;
+        const sku = (row['Item Code'] || row['SKU'] || row['sku'] || '').toString().trim();
+        const barcode = (row['Barcode'] || row['barcode'] || '').toString().trim();
+        const warehouseName = (row['Warehouse'] || row['warehouse'] || '').toString().trim();
+        const qtyStr = (row['Quantity'] || row['quantity'] || row['Qty'] || row['qty'] || row['Closing Stock'] || '0').toString().trim();
+        const quantity = parseFloat(qtyStr);
+
+        if (!sku && !barcode) { failed++; errors.push(`Row ${rowNum}: Missing Item Code / Barcode`); continue; }
+        if (isNaN(quantity)) { failed++; errors.push(`Row ${rowNum}: Invalid quantity "${qtyStr}"`); continue; }
+
+        let productId = sku ? prodMap.get(sku.toLowerCase()) : null;
+        if (!productId) productId = barcode ? barcodeMap.get(barcode.toLowerCase()) : null;
+        if (!productId) { failed++; errors.push(`Row ${rowNum}: Product not found (SKU: ${sku}, Barcode: ${barcode})`); continue; }
+
+        let warehouseId: string | null = null;
+        if (warehouseName) {
+          warehouseId = whMap.get(warehouseName.toLowerCase()) || null;
+          if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Warehouse "${warehouseName}" not found`); continue; }
+        }
+        if (!warehouseId && allWarehouses.length === 1) warehouseId = allWarehouses[0].id;
+        if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: No warehouse specified and multiple exist`); continue; }
+
+        const { error } = await upsertInventoryStock(productId, warehouseId, quantity, user?.id);
+        if (error) { failed++; errors.push(`Row ${rowNum}: ${error.message}`); continue; }
+        success++;
+      }
+
+      setImportResults({ success, failed, errors });
+      if (failed === 0) {
+        toast.success(`Imported ${success} item(s) successfully`);
+        setImportOpen(false);
+        setImportFile(null);
+        load();
+      } else {
+        toast.error(`Imported ${success} item(s), ${failed} failed`);
+      }
+    } catch (err) {
+      toast.error('Failed to process file');
+      setImportResults({ success: 0, failed: 1, errors: [(err as Error).message] });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const branchOptions = useMemo(() => [{ value: 'all', label: 'All Branches' }, ...branches.map(b => ({ value: b.id, label: b.name }))], [branches]);
   const warehouseOptions = useMemo(() => [{ value: 'all', label: 'All Warehouses' }, ...warehouses.map(w => ({ value: w.id, label: w.name }))], [warehouses]);
@@ -222,8 +373,17 @@ export const InventoryPage: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)} className="gap-1.5">
+              <Upload size={14} /> Import
+            </Button>
             <Button variant="outline" size="sm" onClick={exportCSV} className="gap-1.5">
-              <FileSpreadsheet size={14} /> Export CSV
+              <FileSpreadsheet size={14} /> CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={exportExcel} className="gap-1.5">
+              <FileDown size={14} /> Excel
+            </Button>
+            <Button variant="outline" size="sm" onClick={exportPDF} className="gap-1.5">
+              <FileText size={14} /> PDF
             </Button>
             <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
               <Printer size={14} /> Print
@@ -526,6 +686,52 @@ export const InventoryPage: React.FC = () => {
               </div>
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══════ IMPORT EXCEL DIALOG ═══════ */}
+      <Dialog open={importOpen} onOpenChange={o => { if (!o) { setImportOpen(false); setImportFile(null); setImportResults(null); } }}>
+        <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload size={16} className="text-primary" />
+              Import Stock from Excel
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">Expected columns:</p>
+              <code className="block">Item Code / SKU, Barcode, Warehouse, Quantity</code>
+              <p>Matches products by SKU or Barcode. If only one warehouse exists, Warehouse column is optional.</p>
+            </div>
+
+            <div>
+              <label className={lbl}>Select Excel File (.xlsx / .xls)</label>
+              <input type="file" accept=".xlsx,.xls" onChange={handleImportFileChange}
+                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary-foreground hover:file:opacity-90" />
+            </div>
+
+            {importResults && (
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-green-600 font-medium">✓ {importResults.success} imported</span>
+                  {importResults.failed > 0 && <span className="text-destructive font-medium">✗ {importResults.failed} failed</span>}
+                </div>
+                {importResults.errors.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto text-xs text-destructive space-y-0.5">
+                    {importResults.errors.map((e, i) => <p key={i}>{e}</p>)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => { setImportOpen(false); setImportFile(null); setImportResults(null); }}>Cancel</Button>
+              <Button size="sm" onClick={processImport} disabled={!importFile || importing} className="gap-1.5">
+                {importing ? <><Loader2 size={14} className="animate-spin" /> Importing...</> : <><Upload size={14} /> Import Stock</>}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </MainLayout>

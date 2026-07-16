@@ -466,6 +466,43 @@ export const createInventoryTransaction = async (tx: Partial<InventoryTransactio
   return supabase.from('inventory_transactions').insert(tx).select().maybeSingle();
 };
 
+export const upsertInventoryStock = async (
+  productId: string,
+  warehouseId: string,
+  quantity: number,
+  userId?: string
+) => {
+  const { data: existing } = await supabase
+    .from('inventory')
+    .select('id, quantity')
+    .eq('product_id', productId)
+    .eq('warehouse_id', warehouseId)
+    .maybeSingle();
+
+  const oldQty = existing?.quantity ?? 0;
+  const diff = quantity - oldQty;
+
+  const { error: upsertError } = await supabase.from('inventory').upsert(
+    { product_id: productId, warehouse_id: warehouseId, quantity },
+    { onConflict: 'product_id, warehouse_id' }
+  );
+  if (upsertError) return { error: upsertError };
+
+  if (diff !== 0) {
+    await supabase.from('inventory_transactions').insert({
+      product_id: productId,
+      warehouse_id: warehouseId,
+      transaction_type: 'ADJUSTMENT',
+      quantity: diff,
+      transaction_date: new Date().toISOString().split('T')[0],
+      remarks: 'Manual stock update via Excel import',
+      created_by: userId || null,
+    });
+  }
+
+  return { error: null };
+};
+
 // ── Transaction Types ──────────────────────────────────────
 export const getTransactionTypes = async () => {
   const { data, error } = await supabase
