@@ -218,7 +218,7 @@ export const getProductById = async (id: string) => {
 };
 
 export const upsertProduct = async (product: Partial<Product>) => {
-  const payload = { ...product };
+  const { product_categories, ...payload } = product;
   if (!payload.category_id) payload.category_id = null;
   if (payload.id) {
     const { data, error } = await supabase.from('products').update(payload).eq('id', payload.id).select().maybeSingle();
