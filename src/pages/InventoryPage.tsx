@@ -313,16 +313,29 @@ export const InventoryPage: React.FC = () => {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
       const rawData: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-      if (rawData.length < 2) { toast.error('File has no data rows (need header + at least 1 data row)'); setImporting(false); return; }
 
-      const headerRow: string[] = rawData[0].map(h => String(h ?? '').trim());
+      const isHeaderRow = (row: unknown[]): boolean => {
+        const cells = row.map(c => String(c ?? '').toLowerCase().trim());
+        return cells.some(c => c === 'cat id' || c === 'catid' || c === 'sku' || c === 'item code');
+      };
+
+      let headerRowIdx = -1;
+      for (let i = 0; i < rawData.length; i++) {
+        if (isHeaderRow(rawData[i])) { headerRowIdx = i; break; }
+      }
+
+      if (headerRowIdx === -1) { toast.error('Could not find a header row (looking for "CAT ID" or "SKU")'); setImporting(false); return; }
+
+      const headerRow: string[] = rawData[headerRowIdx].map(h => String(h ?? '').trim());
       const json: Record<string, string>[] = [];
-      for (let ri = 1; ri < rawData.length; ri++) {
+      for (let ri = headerRowIdx + 1; ri < rawData.length; ri++) {
         const row: Record<string, string> = {};
+        let hasData = false;
         for (let ci = 0; ci < headerRow.length; ci++) {
-          if (headerRow[ci]) row[headerRow[ci]] = String(rawData[ri][ci] ?? '').trim();
+          const val = String(rawData[ri][ci] ?? '').trim();
+          if (headerRow[ci]) { row[headerRow[ci]] = val; if (val) hasData = true; }
         }
-        if (Object.keys(row).length > 0) json.push(row);
+        if (hasData) json.push(row);
       }
 
       if (json.length === 0) { toast.error('No data rows found after header'); setImporting(false); return; }
@@ -330,7 +343,12 @@ export const InventoryPage: React.FC = () => {
       const headers = headerRow.filter(Boolean);
       const codePatterns = ['cat id', 'catid', 'item code', 'itemcode', 'sku', 'code', 'item', 'product code', 'product'];
       const barcodePatterns = ['barcode', 'bar code', 'bar_code', 'gtin', 'upc', 'ean'];
-      const qtyPatterns = ['quantity', 'qty', 'closing stock', 'stock', 'physical qty', 'physical', 'on hand'];
+      const qtyPatterns = ['t.qty', 'tqty', 'total qty', 'quantity', 'qty', 'closing stock', 'stock', 'physical qty', 'physical', 'on hand'];
+      const boxPatterns = ['box'];
+      const pktPatterns = ['pkt'];
+      const loosePatterns = ['loose', 'cut'];
+      const boxStdPatterns = ['box std', 'box_std', 'boxstd'];
+      const pktStdPatterns = ['pkt std', 'pkt_std', 'pktstd'];
       const whPatterns = ['warehouse', 'godown', 'store', 'location', 'branch'];
 
       let success = 0;
@@ -351,11 +369,20 @@ export const InventoryPage: React.FC = () => {
 
       for (let idx = 0; idx < json.length; idx++) {
         const row = json[idx];
-        const rowNum = idx + 2;
+        const rowNum = headerRowIdx + 2 + idx;
         const sku = findCol(row, codePatterns);
         const barcode = findCol(row, barcodePatterns);
         const warehouseName = findCol(row, whPatterns);
-        const qtyStr = findCol(row, qtyPatterns);
+
+        let qtyStr = findCol(row, qtyPatterns);
+        if (!qtyStr) {
+          const boxStd = parseFloat(findCol(row, boxStdPatterns)) || 1;
+          const box = parseFloat(findCol(row, boxPatterns)) || 0;
+          const pktStd = parseFloat(findCol(row, pktStdPatterns)) || 1;
+          const pkt = parseFloat(findCol(row, pktPatterns)) || 0;
+          const loose = parseFloat(findCol(row, loosePatterns)) || 0;
+          qtyStr = String(box * boxStd + pkt * pktStd + loose);
+        }
         const quantity = parseFloat(qtyStr);
 
         if (!sku) { failed++; errors.push(`Row ${rowNum}: Skipped - no product code found. Headers detected: ${headers.join(', ')}`); continue; }
