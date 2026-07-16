@@ -344,15 +344,19 @@ export const InventoryPage: React.FC = () => {
       if (json.length === 0) { toast.error('No data rows found after header'); setImporting(false); return; }
 
       const headers = headerRow.filter(Boolean);
-      const codePatterns = ['cat id', 'catid', 'item code', 'itemcode', 'sku', 'code', 'item', 'product code', 'product'];
+      const codePatterns = ['item code', 'cat id', 'catid', 'itemcode', 'sku', 'code', 'item', 'product code', 'product'];
       const barcodePatterns = ['barcode', 'bar code', 'bar_code', 'gtin', 'upc', 'ean'];
-      const qtyPatterns = ['t.qty', 'tqty', 'total qty', 'quantity', 'qty', 'closing stock', 'stock', 'physical qty', 'physical', 'on hand'];
-      const boxPatterns = ['box'];
-      const pktPatterns = ['pkt'];
-      const loosePatterns = ['loose', 'cut'];
+      const namePatterns = ['item description', 'item name', 'itemname', 'description', 'name', 'product name'];
+      const openingPatterns = ['opening qty', 'opening_qty', 'openingqty', 'opening'];
+      const unitPricePatterns = ['unit price', 'unit_price', 'rate', 'price', 'purchase price'];
+      const boxPatterns = ['box qty', 'boxqty', 'box'];
+      const pktPatterns = ['pkt qty', 'pktqty', 'pkt'];
+      const loosePatterns = ['loose/cut qty', 'loose', 'cut', 'loose_cut_qty'];
       const boxStdPatterns = ['box std', 'box_std', 'boxstd'];
       const pktStdPatterns = ['pkt std', 'pkt_std', 'pktstd'];
-      const whPatterns = ['warehouse', 'godown', 'store', 'location', 'branch'];
+      const inwardsPatterns = ['inwards', 'inward'];
+      const outwardsPatterns = ['outwards', 'outward'];
+      const whPatterns = ['location', 'warehouse', 'godown', 'store', 'branch'];
 
       let success = 0;
       let failed = 0;
@@ -375,32 +379,29 @@ export const InventoryPage: React.FC = () => {
         const rowNum = headerRowIdx + 2 + idx;
         const sku = findCol(row, codePatterns);
         const barcode = findCol(row, barcodePatterns);
-        const warehouseName = findCol(row, whPatterns);
+        const itemName = findCol(row, namePatterns);
+        const unitPrice = parseFloat(findCol(row, unitPricePatterns)) || 0;
+        const openingQty = parseFloat(findCol(row, openingPatterns)) || 0;
 
-        let qtyStr = findCol(row, qtyPatterns);
-        if (!qtyStr) {
-          const boxStd = parseFloat(findCol(row, boxStdPatterns)) || 0;
-          const boxQty = parseFloat(findCol(row, boxPatterns)) || 0;
-          const pktStd = parseFloat(findCol(row, pktStdPatterns)) || 0;
-          const pktQty = parseFloat(findCol(row, pktPatterns)) || 0;
-          const loose = parseFloat(findCol(row, loosePatterns)) || 0;
-          const inwards = parseFloat(findCol(row, ['inwards', 'inward'])) || 0;
-          const outwards = parseFloat(findCol(row, ['outwards', 'outward'])) || 0;
-          const boxCalc = (boxStd > 0 && boxQty > 0) ? boxStd * boxQty : 0;
-          const pktCalc = (pktStd > 0 && pktQty > 0) ? pktStd * pktQty : 0;
-          qtyStr = String(boxCalc + pktCalc + loose + inwards - outwards);
-        }
-        const quantity = parseFloat(qtyStr);
+        if (!sku) { failed++; errors.push(`Row ${rowNum}: Skipped - no Item Code found`); continue; }
 
-        if (!sku) { failed++; errors.push(`Row ${rowNum}: Skipped - no product code found. Headers detected: ${headers.join(', ')}`); continue; }
-        if (isNaN(quantity)) { failed++; errors.push(`Row ${rowNum}: Skipped - invalid quantity "${qtyStr}"`); continue; }
+        const boxStd = parseFloat(findCol(row, boxStdPatterns)) || 0;
+        const boxQty = parseFloat(findCol(row, boxPatterns)) || 0;
+        const pktStd = parseFloat(findCol(row, pktStdPatterns)) || 0;
+        const pktQty = parseFloat(findCol(row, pktPatterns)) || 0;
+        const loose = parseFloat(findCol(row, loosePatterns)) || 0;
+        const inwards = parseFloat(findCol(row, inwardsPatterns)) || 0;
+        const outwards = parseFloat(findCol(row, outwardsPatterns)) || 0;
+
+        const boxCalc = (boxStd > 0 && boxQty > 0) ? boxStd * boxQty : 0;
+        const pktCalc = (pktStd > 0 && pktQty > 0) ? pktStd * pktQty : 0;
+        let quantity = boxCalc + pktCalc + loose + inwards - outwards;
+        if (quantity === 0 && openingQty > 0) quantity = openingQty;
 
         let productId = prodMap.get(sku.toLowerCase());
         if (!productId && barcode) productId = barcodeMap.get(barcode.toLowerCase()) || null;
 
         if (!productId) {
-          const itemName = findCol(row, ['item name', 'itemname', 'item', 'name', 'description', 'product name']);
-          const unitPrice = parseFloat(findCol(row, ['unit price', 'unit_price', 'rate', 'price', 'purchase price'])) || 0;
           const newBarcode = generateBarcode(sku, 'new');
           const { data: newProduct, error: createErr } = await upsertProduct({
             sku,
@@ -426,13 +427,13 @@ export const InventoryPage: React.FC = () => {
           barcodeGenerated++;
         }
 
+        const warehouseName = findCol(row, whPatterns);
         let warehouseId: string | null = null;
         if (warehouseName) {
           warehouseId = whMap.get(warehouseName.toLowerCase()) || null;
-          if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - warehouse "${warehouseName}" not found`); continue; }
         }
-        if (!warehouseId && allWarehouses.length === 1) warehouseId = allWarehouses[0].id;
-        if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - no warehouse column found or matched. Headers: ${headers.join(', ')}`); continue; }
+        if (!warehouseId && allWarehouses.length > 0) warehouseId = allWarehouses[0].id;
+        if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - no warehouse available`); continue; }
 
         const { error } = await upsertInventoryStock(productId, warehouseId, quantity, user?.id);
         if (error) { failed++; errors.push(`Row ${rowNum}: ${error.message}`); continue; }
@@ -472,35 +473,39 @@ export const InventoryPage: React.FC = () => {
   const downloadTemplate = () => {
     const template = [
       {
-        'CAT ID': '672103',
-        'ITEM NAME': '6A 3 PIN 2M SOCKET WITH SHUTTER REGULAR BLACK',
-        'UNIT PRICE': 45.00,
-        'BOX STD': 200,
-        'BOX': 8,
-        'PKT STD': 20,
-        'PKT': 11,
-        'LOOSE': 12,
-        'INWARDS': 0,
-        'OUTWARDS': 0,
-        'LOCATION': 'Main Warehouse',
+        'Item Code': '672103',
+        'Barcode': '',
+        'Item Description': '6A 3 PIN 2M SOCKET WITH SHUTTER REGULAR BLACK',
+        'Opening Qty': 0,
+        'Unit Price': 45.00,
+        'Box Std': 200,
+        'Box Qty': 8,
+        'Pkt Std': 20,
+        'Pkt Qty': 11,
+        'Loose/Cut Qty': 12,
+        'Inwards': 0,
+        'Outwards': 0,
+        'Location': 'Main Warehouse',
       },
       {
-        'CAT ID': '',
-        'ITEM NAME': '',
-        'UNIT PRICE': '',
-        'BOX STD': '',
-        'BOX': '',
-        'PKT STD': '',
-        'PKT': '',
-        'LOOSE': '',
-        'INWARDS': '',
-        'OUTWARDS': '',
-        'LOCATION': '',
+        'Item Code': '',
+        'Barcode': '',
+        'Item Description': '',
+        'Opening Qty': '',
+        'Unit Price': '',
+        'Box Std': '',
+        'Box Qty': '',
+        'Pkt Std': '',
+        'Pkt Qty': '',
+        'Loose/Cut Qty': '',
+        'Inwards': '',
+        'Outwards': '',
+        'Location': '',
       },
     ];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    XLSX.utils.book_append_sheet(wb, ws, 'StockImport');
     XLSX.writeFile(wb, 'stock_import_template.xlsx');
     toast.success('Template downloaded');
   };
@@ -855,9 +860,9 @@ export const InventoryPage: React.FC = () => {
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
-              <p className="font-medium text-foreground">Expected columns:</p>
-              <code className="block">CAT ID / Item Code / SKU, Barcode, Warehouse, Quantity</code>
-              <p>Recognizes "CAT ID", "Item Code", or "SKU" column. Missing barcodes are auto-generated. Only rows with a valid code and quantity are imported.</p>
+              <p className="font-medium text-foreground">Required: <span className="text-foreground">Item Code</span> — rest are optional</p>
+              <code className="block">Item Code, Barcode, Item Description, Opening Qty, Unit Price, Box Std, Box Qty, Pkt Std, Pkt Qty, Loose/Cut Qty, Inwards, Outwards, Location</code>
+              <p>Download the <strong>Template</strong> for exact column format. New Item Codes are auto-created. Missing barcodes are auto-generated. If Location is blank, first warehouse is used.</p>
             </div>
 
             <div>
