@@ -643,6 +643,30 @@ export const InventoryPage: React.FC = () => {
     toast.success('Template downloaded');
   };
 
+  const validateFormula = () => {
+    const mismatches: { sku: string; name: string; expected: number; displayed: number; breakdown: string }[] = [];
+    for (const i of items) {
+      const boxComponent = (i.box_std > 0 && i.box_qty > 0) ? i.box_std * i.box_qty : 0;
+      const pktComponent = (i.pkt_std > 0 && i.pkt_qty > 0) ? i.pkt_std * i.pkt_qty : 0;
+      const expected = boxComponent + pktComponent + (i.loose_cut_qty || 0) + i.inwards - i.outwards;
+      if (Math.abs(expected - i.closing_stock) > 0.001) {
+        mismatches.push({
+          sku: i.sku, name: i.name, expected, displayed: i.closing_stock,
+          breakdown: `box=${i.box_std}x${i.box_qty} pkt=${i.pkt_std}x${i.pkt_qty} loose=${i.loose_cut_qty} in=${i.inwards} out=${i.outwards}`,
+        });
+      }
+    }
+    if (mismatches.length === 0) {
+      toast.success(`All ${items.length} items match the formula ✓`);
+    } else {
+      const msg = mismatches.slice(0, 5).map(m =>
+        `${m.sku}: expected=${m.expected} displayed=${m.displayed}`
+      ).join('\n');
+      toast.error(`${mismatches.length} items mismatch:\n${msg}`);
+      console.table(mismatches);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const companyOptions = useMemo(() => [{ value: 'all', label: 'All Companies' }, ...allCompanies.map(c => ({ value: c.id, label: c.name }))], [allCompanies]);
   const branchOptions = useMemo(() => [{ value: 'all', label: 'All Branches' }, ...filteredBranches.map(b => ({ value: b.id, label: b.name }))], [filteredBranches]);
@@ -678,6 +702,9 @@ export const InventoryPage: React.FC = () => {
             </Button>
             <Button variant="outline" size="sm" onClick={exportPDF} className="gap-1.5">
               <FileText size={14} /> PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={validateFormula} className="gap-1.5">
+              <CheckCircle size={14} /> Validate
             </Button>
             <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5">
               <Printer size={14} /> Print

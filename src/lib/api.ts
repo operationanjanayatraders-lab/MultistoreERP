@@ -375,13 +375,22 @@ export const getInventoryItems = async (opts: {
     whPerProduct.get(pid)!.push({ warehouse_id: wid, warehouse_name: whNames.get(wid) || wid, quantity: qty });
   }
 
-  // Extract latest breakdown from ADJUSTMENT transactions
+  // Aggregate breakdown from ALL ADJUSTMENT transactions (sum across warehouses)
   const productBreakdown = new Map<string, Record<string, number>>();
   for (const tx of (txData || [])) {
     if (tx.transaction_type === 'ADJUSTMENT' && tx.remarks && tx.remarks.startsWith('{')) {
       try {
         const parsed = JSON.parse(tx.remarks);
-        if (!productBreakdown.has(tx.product_id)) {
+        const existing = productBreakdown.get(tx.product_id);
+        if (existing) {
+          existing.box_std = existing.box_std || parsed.box_std || 0;
+          existing.box_qty = (existing.box_qty || 0) + (parsed.box_qty || 0);
+          existing.pkt_std = existing.pkt_std || parsed.pkt_std || 0;
+          existing.pkt_qty = (existing.pkt_qty || 0) + (parsed.pkt_qty || 0);
+          existing.loose_cut_qty = (existing.loose_cut_qty || 0) + (parsed.loose_cut_qty || 0);
+          existing.inwards = (existing.inwards || 0) + (parsed.inwards || 0);
+          existing.outwards = (existing.outwards || 0) + (parsed.outwards || 0);
+        } else {
           productBreakdown.set(tx.product_id, {
             box_std: parsed.box_std || 0,
             box_qty: parsed.box_qty || 0,
@@ -458,10 +467,14 @@ export const getInventoryItems = async (opts: {
     const adjustmentVal = get(txByType['ADJUSTMENT']);
     const purchaseReturn = get(txByType['PURCHASE_RETURN']);
 
-    const closing = totalQty;
+    const bd = productBreakdown.get(pid) || {};
+    const boxComponent = (bd.box_std > 0 && bd.box_qty > 0) ? bd.box_std * bd.box_qty : 0;
+    const pktComponent = (bd.pkt_std > 0 && bd.pkt_qty > 0) ? bd.pkt_std * bd.pkt_qty : 0;
+    const inwardsDisplayed = bd.inwards ?? inwardsVal;
+    const outwardsDisplayed = bd.outwards ?? get(txByType['SALE']);
+    const closing = boxComponent + pktComponent + (bd.loose_cut_qty || 0) + inwardsDisplayed - outwardsDisplayed;
     const stockValue = closing * (p.purchase_price || 0);
 
-    const bd = productBreakdown.get(pid) || {};
     summaries.push({
       product_id: pid,
       sku: p.sku,
@@ -474,8 +487,8 @@ export const getInventoryItems = async (opts: {
       purchase_price: p.purchase_price || 0,
       reorder_level: reorder,
       opening_qty: bd.opening_qty ?? openingQty,
-      inwards: bd.inwards ?? inwardsVal,
-      outwards: bd.outwards ?? get(txByType['SALE']),
+      inwards: inwardsDisplayed,
+      outwards: outwardsDisplayed,
       transfer_in: transferIn,
       transfer_out: transferOut,
       sales_return: salesReturn,
