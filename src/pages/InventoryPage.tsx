@@ -290,6 +290,19 @@ export const InventoryPage: React.FC = () => {
     return `${sku}_${shortId}`;
   };
 
+  const findCol = (row: Record<string, string>, patterns: string[]): string => {
+    const keys = Object.keys(row);
+    for (const p of patterns) {
+      const exact = keys.find(k => k.toLowerCase().trim() === p.toLowerCase().trim());
+      if (exact) return (row[exact] || '').toString().trim();
+    }
+    for (const p of patterns) {
+      const partial = keys.find(k => k.toLowerCase().trim().includes(p.toLowerCase().trim()));
+      if (partial) return (row[partial] || '').toString().trim();
+    }
+    return '';
+  };
+
   const processImport = async () => {
     if (!importFile) { toast.error('Please select a file'); return; }
     setImporting(true);
@@ -299,6 +312,19 @@ export const InventoryPage: React.FC = () => {
       const workbook = XLSX.read(data, { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const json: Record<string, string>[] = XLSX.utils.sheet_to_json(sheet);
+
+      if (json.length === 0) { toast.error('File is empty'); setImporting(false); return; }
+
+      const headers = Object.keys(json[0]);
+      const codePatterns = ['cat id', 'catid', 'item code', 'itemcode', 'sku', 'code', 'item', 'product code', 'product'];
+      const barcodePatterns = ['barcode', 'bar code', 'bar_code', 'gtin', 'upc', 'ean'];
+      const qtyPatterns = ['quantity', 'qty', 'closing stock', 'stock', 'physical qty', 'physical', 'on hand'];
+      const whPatterns = ['warehouse', 'godown', 'store', 'location', 'branch'];
+
+      let success = 0;
+      let failed = 0;
+      const errors: string[] = [];
+      let barcodeGenerated = 0;
 
       const prodMap = new Map<string, string>();
       const barcodeMap = new Map<string, string>();
@@ -311,30 +337,27 @@ export const InventoryPage: React.FC = () => {
       const whMap = new Map<string, string>();
       for (const w of allWarehouses) whMap.set(w.name.toLowerCase(), w.id);
 
-      let success = 0;
-      let failed = 0;
-      const errors: string[] = [];
-
       for (let idx = 0; idx < json.length; idx++) {
         const row = json[idx];
         const rowNum = idx + 2;
-        const sku = (row['Item Code'] || row['SKU'] || row['sku'] || row['CAT ID'] || row['Cat ID'] || row['cat id'] || row['Cat Id'] || '').toString().trim();
-        const barcode = (row['Barcode'] || row['barcode'] || '').toString().trim();
-        const warehouseName = (row['Warehouse'] || row['warehouse'] || '').toString().trim();
-        const qtyStr = (row['Quantity'] || row['quantity'] || row['Qty'] || row['qty'] || row['Closing Stock'] || '0').toString().trim();
+        const sku = findCol(row, codePatterns);
+        const barcode = findCol(row, barcodePatterns);
+        const warehouseName = findCol(row, whPatterns);
+        const qtyStr = findCol(row, qtyPatterns);
         const quantity = parseFloat(qtyStr);
 
-        if (!sku && !barcode) { failed++; errors.push(`Row ${rowNum}: Skipped - no Item Code or Barcode`); continue; }
+        if (!sku) { failed++; errors.push(`Row ${rowNum}: Skipped - no product code found. Headers detected: ${headers.join(', ')}`); continue; }
         if (isNaN(quantity)) { failed++; errors.push(`Row ${rowNum}: Skipped - invalid quantity "${qtyStr}"`); continue; }
 
-        let productId = sku ? prodMap.get(sku.toLowerCase()) : null;
+        let productId = prodMap.get(sku.toLowerCase());
         if (!productId && barcode) productId = barcodeMap.get(barcode.toLowerCase()) || null;
-        if (!productId) { failed++; errors.push(`Row ${rowNum}: Skipped - product not found (Code: ${sku})`); continue; }
+        if (!productId) { failed++; errors.push(`Row ${rowNum}: Skipped - product "${sku}" not found in system`); continue; }
 
-        if (productId && sku && !prodBarcodeMap.get(productId)) {
+        if (productId && !prodBarcodeMap.get(productId)) {
           const newBarcode = generateBarcode(sku, productId);
           await upsertProduct({ id: productId, barcode: newBarcode });
           prodBarcodeMap.set(productId, newBarcode);
+          barcodeGenerated++;
         }
 
         let warehouseId: string | null = null;
@@ -343,12 +366,15 @@ export const InventoryPage: React.FC = () => {
           if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - warehouse "${warehouseName}" not found`); continue; }
         }
         if (!warehouseId && allWarehouses.length === 1) warehouseId = allWarehouses[0].id;
-        if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - no warehouse specified`); continue; }
+        if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - no warehouse column found or matched. Headers: ${headers.join(', ')}`); continue; }
 
         const { error } = await upsertInventoryStock(productId, warehouseId, quantity, user?.id);
         if (error) { failed++; errors.push(`Row ${rowNum}: ${error.message}`); continue; }
         success++;
       }
+
+      if (barcodeGenerated > 0) errors.unshift(`Auto-generated barcodes for ${barcodeGenerated} product(s)`);
+      if (headers.length > 0) errors.unshift(`Detected columns: ${headers.join(', ')}`);
 
       setImportResults({ success, failed, errors });
       if (failed === 0) {
@@ -357,7 +383,7 @@ export const InventoryPage: React.FC = () => {
         setImportFile(null);
         load();
       } else {
-        toast.error(`Imported ${success} item(s), ${failed} failed`);
+        toast.error(`Imported ${success} item(s), ${failed} skipped`);
       }
     } catch (err) {
       toast.error('Failed to process file');
@@ -729,11 +755,14 @@ export const InventoryPage: React.FC = () => {
               <div className="rounded-lg border border-border p-3 space-y-2">
                 <div className="flex items-center gap-3 text-sm">
                   <span className="text-green-600 font-medium">✓ {importResults.success} imported</span>
-                  {importResults.failed > 0 && <span className="text-destructive font-medium">✗ {importResults.failed} failed</span>}
+                  {importResults.failed > 0 && <span className="text-destructive font-medium">✗ {importResults.failed} skipped</span>}
                 </div>
                 {importResults.errors.length > 0 && (
-                  <div className="max-h-32 overflow-y-auto text-xs text-destructive space-y-0.5">
-                    {importResults.errors.map((e, i) => <p key={i}>{e}</p>)}
+                  <div className="max-h-32 overflow-y-auto text-xs space-y-0.5">
+                    {importResults.errors.map((e, i) => {
+                      const isInfo = e.startsWith('Detected') || e.startsWith('Auto-generated');
+                      return <p key={i} className={isInfo ? 'text-muted-foreground' : 'text-destructive'}>{e}</p>;
+                    })}
                   </div>
                 )}
               </div>
