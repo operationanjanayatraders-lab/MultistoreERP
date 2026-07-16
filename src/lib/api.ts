@@ -73,7 +73,7 @@ export const getWarehouses = async () => {
 };
 
 export const getBranches = async (companyId?: string) => {
-  let q = supabase.from('branches').select('*, warehouses(id,name)').eq('is_active', true).order('name').limit(50);
+  let q = supabase.from('branches').select('*').eq('is_active', true).order('name').limit(50);
   if (companyId) q = q.eq('company_id', companyId);
   const { data, error } = await q;
   return { data: Array.isArray(data) ? data as import('@/types/types').Branch[] : [], error };
