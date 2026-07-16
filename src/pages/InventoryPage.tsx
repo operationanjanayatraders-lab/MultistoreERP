@@ -422,6 +422,12 @@ export const InventoryPage: React.FC = () => {
         errors.unshift(`Detected columns: ${headers.join(', ')}`);
         errors.unshift(`First row sample: { ${sample} }`);
       }
+      if (allProducts.length > 0) {
+        const skus = allProducts.slice(0, 5).map(p => `"${p.sku}"`).join(', ');
+        errors.unshift(`Products loaded: ${allProducts.length} total. Sample SKUs: ${skus}`);
+      } else {
+        errors.unshift('Products loaded: 0 — no products found in database');
+      }
 
       setImportResults({ success, failed, errors });
       if (failed === 0) {
