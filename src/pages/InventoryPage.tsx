@@ -397,7 +397,27 @@ export const InventoryPage: React.FC = () => {
 
         let productId = prodMap.get(sku.toLowerCase());
         if (!productId && barcode) productId = barcodeMap.get(barcode.toLowerCase()) || null;
-        if (!productId) { failed++; errors.push(`Row ${rowNum}: Skipped - product "${sku}" not found in system`); continue; }
+
+        if (!productId) {
+          const itemName = findCol(row, ['item name', 'itemname', 'item', 'name', 'description', 'product name']);
+          const unitPrice = parseFloat(findCol(row, ['unit price', 'unit_price', 'rate', 'price', 'purchase price'])) || 0;
+          const newBarcode = generateBarcode(sku, 'new');
+          const { data: newProduct, error: createErr } = await upsertProduct({
+            sku,
+            name: itemName || sku,
+            barcode: newBarcode,
+            unit: 'pcs',
+            purchase_price: unitPrice,
+            selling_price: 0,
+            reorder_level: 0,
+            is_active: true,
+          });
+          if (createErr || !newProduct) { failed++; errors.push(`Row ${rowNum}: Failed to create product "${sku}": ${createErr?.message}`); continue; }
+          productId = newProduct.id;
+          prodMap.set(sku.toLowerCase(), productId);
+          prodBarcodeMap.set(productId, newBarcode);
+          barcodeGenerated++;
+        }
 
         if (productId && !prodBarcodeMap.get(productId)) {
           const newBarcode = generateBarcode(sku, productId);
@@ -454,6 +474,7 @@ export const InventoryPage: React.FC = () => {
       {
         'CAT ID': '672103',
         'ITEM NAME': '6A 3 PIN 2M SOCKET WITH SHUTTER REGULAR BLACK',
+        'UNIT PRICE': 45.00,
         'BOX STD': 200,
         'BOX': 8,
         'PKT STD': 20,
@@ -466,6 +487,7 @@ export const InventoryPage: React.FC = () => {
       {
         'CAT ID': '',
         'ITEM NAME': '',
+        'UNIT PRICE': '',
         'BOX STD': '',
         'BOX': '',
         'PKT STD': '',
