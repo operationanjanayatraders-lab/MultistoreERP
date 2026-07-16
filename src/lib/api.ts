@@ -68,7 +68,7 @@ export const upsertCompanySettings = async (settings: Partial<CompanySettings>) 
 // ── Warehouses & Branches ──────────────────────────────────
 export const getWarehouses = async () => {
   const { data, error } = await supabase
-    .from('warehouses').select('*, branches(id,name,branch_id)').order('name').limit(100);
+    .from('warehouses').select('*').order('name').limit(100);
   return { data: Array.isArray(data) ? data as Warehouse[] : [], error };
 };
 
@@ -94,7 +94,7 @@ export const deleteBranch = async (id: string) => {
 
 export const getWarehousesByBranch = async (branchId: string) => {
   const { data, error } = await supabase
-    .from('warehouses').select('*, branches(id,name,branch_id)').eq('branch_id', branchId).order('name');
+    .from('warehouses').select('*').eq('branch_id', branchId).order('name');
   return { data: Array.isArray(data) ? data as Warehouse[] : [], error };
 };
 
