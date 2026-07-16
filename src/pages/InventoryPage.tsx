@@ -13,7 +13,8 @@ import autoTable from 'jspdf-autotable';
 import { MainLayout } from '@/components/layouts/MainLayout';
 import {
   getInventoryItems, getInventorySummaryCards, getInventoryStockDetail,
-  getBrands, getWarehouses, getBranches, upsertInventoryStock, getProducts
+  getBrands, getWarehouses, getBranches, upsertInventoryStock, getProducts,
+  upsertProduct
 } from '@/lib/api';
 import type { StockSummary, InventorySummaryCards, Warehouse, Branch } from '@/types/types';
 import { toast } from 'sonner';
@@ -284,6 +285,11 @@ export const InventoryPage: React.FC = () => {
     if (file) setImportFile(file);
   };
 
+  const generateBarcode = (sku: string, productId: string) => {
+    const shortId = productId.replace(/-/g, '').slice(0, 6).toUpperCase();
+    return `${sku}_${shortId}`;
+  };
+
   const processImport = async () => {
     if (!importFile) { toast.error('Please select a file'); return; }
     setImporting(true);
@@ -296,8 +302,10 @@ export const InventoryPage: React.FC = () => {
 
       const prodMap = new Map<string, string>();
       const barcodeMap = new Map<string, string>();
+      const prodBarcodeMap = new Map<string, string | null>();
       for (const p of allProducts) {
         prodMap.set(p.sku.toLowerCase(), p.id);
+        prodBarcodeMap.set(p.id, p.barcode);
         if (p.barcode) barcodeMap.set(p.barcode.toLowerCase(), p.id);
       }
       const whMap = new Map<string, string>();
@@ -310,26 +318,32 @@ export const InventoryPage: React.FC = () => {
       for (let idx = 0; idx < json.length; idx++) {
         const row = json[idx];
         const rowNum = idx + 2;
-        const sku = (row['Item Code'] || row['SKU'] || row['sku'] || '').toString().trim();
+        const sku = (row['Item Code'] || row['SKU'] || row['sku'] || row['CAT ID'] || row['Cat ID'] || row['cat id'] || row['Cat Id'] || '').toString().trim();
         const barcode = (row['Barcode'] || row['barcode'] || '').toString().trim();
         const warehouseName = (row['Warehouse'] || row['warehouse'] || '').toString().trim();
         const qtyStr = (row['Quantity'] || row['quantity'] || row['Qty'] || row['qty'] || row['Closing Stock'] || '0').toString().trim();
         const quantity = parseFloat(qtyStr);
 
-        if (!sku && !barcode) { failed++; errors.push(`Row ${rowNum}: Missing Item Code / Barcode`); continue; }
-        if (isNaN(quantity)) { failed++; errors.push(`Row ${rowNum}: Invalid quantity "${qtyStr}"`); continue; }
+        if (!sku && !barcode) { failed++; errors.push(`Row ${rowNum}: Skipped - no Item Code or Barcode`); continue; }
+        if (isNaN(quantity)) { failed++; errors.push(`Row ${rowNum}: Skipped - invalid quantity "${qtyStr}"`); continue; }
 
         let productId = sku ? prodMap.get(sku.toLowerCase()) : null;
-        if (!productId) productId = barcode ? barcodeMap.get(barcode.toLowerCase()) : null;
-        if (!productId) { failed++; errors.push(`Row ${rowNum}: Product not found (SKU: ${sku}, Barcode: ${barcode})`); continue; }
+        if (!productId && barcode) productId = barcodeMap.get(barcode.toLowerCase()) || null;
+        if (!productId) { failed++; errors.push(`Row ${rowNum}: Skipped - product not found (Code: ${sku})`); continue; }
+
+        if (productId && sku && !prodBarcodeMap.get(productId)) {
+          const newBarcode = generateBarcode(sku, productId);
+          await upsertProduct({ id: productId, barcode: newBarcode });
+          prodBarcodeMap.set(productId, newBarcode);
+        }
 
         let warehouseId: string | null = null;
         if (warehouseName) {
           warehouseId = whMap.get(warehouseName.toLowerCase()) || null;
-          if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Warehouse "${warehouseName}" not found`); continue; }
+          if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - warehouse "${warehouseName}" not found`); continue; }
         }
         if (!warehouseId && allWarehouses.length === 1) warehouseId = allWarehouses[0].id;
-        if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: No warehouse specified and multiple exist`); continue; }
+        if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - no warehouse specified`); continue; }
 
         const { error } = await upsertInventoryStock(productId, warehouseId, quantity, user?.id);
         if (error) { failed++; errors.push(`Row ${rowNum}: ${error.message}`); continue; }
@@ -701,8 +715,8 @@ export const InventoryPage: React.FC = () => {
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
               <p className="font-medium text-foreground">Expected columns:</p>
-              <code className="block">Item Code / SKU, Barcode, Warehouse, Quantity</code>
-              <p>Matches products by SKU or Barcode. If only one warehouse exists, Warehouse column is optional.</p>
+              <code className="block">CAT ID / Item Code / SKU, Barcode, Warehouse, Quantity</code>
+              <p>Recognizes "CAT ID", "Item Code", or "SKU" column. Missing barcodes are auto-generated. Only rows with a valid code and quantity are imported.</p>
             </div>
 
             <div>
