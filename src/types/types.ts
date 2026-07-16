@@ -164,6 +164,16 @@ export interface InventorySummaryCards {
   negative_stock: number;
 }
 
+export interface ProductLocation {
+  id: string;
+  product_id: string;
+  warehouse_id: string;
+  location_code: string;
+  quantity: number;
+  created_at: string;
+  warehouses?: Warehouse;
+}
+
 export interface TransactionType {
   id: string;
   name: string;

@@ -5,7 +5,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Warehouse as WarehouseIcon,
   Tag, FileSpreadsheet, Loader2, AlertCircle,
   CheckCircle, BarChart3, CalendarDays, ArrowLeftRight,
-  Upload, FileDown, FileText
+  Upload, FileDown, FileText, Building2, MapPin
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -137,6 +137,7 @@ export const InventoryPage: React.FC = () => {
   // ── Detail Modal ─────────────────────────────────────
   const [detailItem, setDetailItem] = useState<StockSummary | null>(null);
   const [warehouseDetail, setWarehouseDetail] = useState<{ warehouse_name: string; quantity: number }[]>([]);
+  const [productLocations, setProductLocations] = useState<{ location_code: string; quantity: number; warehouse_name: string }[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
 
   // ── Import Modal ─────────────────────────────────────
@@ -146,6 +147,10 @@ export const InventoryPage: React.FC = () => {
   const [importResults, setImportResults] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
   const [allProducts, setAllProducts] = useState<{ sku: string; barcode: string | null; id: string }[]>([]);
   const [allWarehouses, setAllWarehouses] = useState<{ name: string; id: string }[]>([]);
+  const [allCompanies, setAllCompanies] = useState<{ name: string; id: string }[]>([]);
+
+  // ── Filters ──────────────────────────────────────────
+  const [companyId, setCompanyId] = useState('all');
 
   // ── Date Quick Buttons ───────────────────────────────
   const setDatePreset = useCallback((preset: string) => {
@@ -161,11 +166,14 @@ export const InventoryPage: React.FC = () => {
     setToDate(now.toISOString().split('T')[0]);
   }, []);
 
-  // ── Load Warehouses & Brands & Products ─────────────
+  // ── Load Warehouses & Brands & Products & Companies ──
   useEffect(() => {
     getWarehouses().then(r => { setWarehouses(r.data); setAllWarehouses(r.data.map(w => ({ name: w.name, id: w.id }))); });
     getBrands().then(r => setBrands(r));
     getBranches().then(r => setBranches(r.data));
+    supabase.from('companies').select('id, name').eq('is_active', true).then(r => {
+      if (r.data) setAllCompanies(r.data.map(c => ({ name: c.name, id: c.id })));
+    });
     supabase.from('products').select('id, sku, barcode').then(r => {
       if (r.data) setAllProducts(r.data.map(p => ({ sku: p.sku, barcode: p.barcode, id: p.id })));
     });
@@ -202,16 +210,26 @@ export const InventoryPage: React.FC = () => {
   const openDetail = async (item: StockSummary) => {
     setDetailItem(item);
     setDetailLoading(true);
-    const whData = await getInventoryStockDetail(item.product_id);
+    const [whData, locData] = await Promise.all([
+      getInventoryStockDetail(item.product_id),
+      supabase.from('product_locations').select('*, warehouses(id,name)').eq('product_id', item.product_id).order('location_code'),
+    ]);
     setWarehouseDetail(whData);
+    setProductLocations(
+      (locData.data || []).map(l => ({
+        location_code: (l as Record<string, unknown>).location_code as string,
+        quantity: (l as Record<string, unknown>).quantity as number,
+        warehouse_name: ((l as Record<string, unknown>).warehouses as Record<string, unknown>)?.name as string || '',
+      }))
+    );
     setDetailLoading(false);
   };
 
   // ── Export CSV ───────────────────────────────────────
   const exportCSV = () => {
     try {
-      const headers = ['Item Code', 'Barcode', 'Item Description', 'Location', 'Brand', 'Opening Qty', 'Unit Price', 'Box Std', 'Box Qty', 'Pkt Std', 'Pkt Qty', 'Loose/Cut Qty', 'Inwards', 'Outwards', 'Closing Stock', 'Stock Value'];
-      const rows = items.map(i => [i.sku, i.barcode || '', i.name, i.warehouses?.[0]?.warehouse_name || '', i.brand || '', i.opening_qty, i.purchase_price, i.box_std, i.box_qty, i.pkt_std, i.pkt_qty, i.loose_cut_qty, i.inwards, i.outwards, i.closing_stock, i.stock_value.toFixed(2)]);
+      const headers = ['Item Code', 'Barcode', 'Item Description', 'Branch', 'Warehouse', 'Location', 'Brand', 'Opening Qty', 'Unit Price', 'Box Std', 'Box Qty', 'Pkt Std', 'Pkt Qty', 'Loose/Cut Qty', 'Inwards', 'Outwards', 'Closing Stock', 'Stock Value'];
+      const rows = items.map(i => [i.sku, i.barcode || '', i.name, '', i.warehouses?.[0]?.warehouse_name || '', '', i.brand || '', i.opening_qty, i.purchase_price, i.box_std, i.box_qty, i.pkt_std, i.pkt_qty, i.loose_cut_qty, i.inwards, i.outwards, i.closing_stock, i.stock_value.toFixed(2)]);
       const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -228,7 +246,9 @@ export const InventoryPage: React.FC = () => {
         'Item Code': i.sku,
         'Barcode': i.barcode || '',
         'Item Description': i.name,
-        'Location': i.warehouses?.[0]?.warehouse_name || '',
+        'Branch': '',
+        'Warehouse': i.warehouses?.[0]?.warehouse_name || '',
+        'Location': '',
         'Brand': i.brand || '',
         'Opening Qty': i.opening_qty,
         'Unit Price': i.purchase_price,
@@ -259,9 +279,9 @@ export const InventoryPage: React.FC = () => {
       doc.text('Inventory Report', 14, 15);
       doc.setFontSize(9);
       doc.text(`Date: ${today}`, 14, 22);
-      const tableColumns = ['Item Code', 'Barcode', 'Item Description', 'Location', 'Brand', 'Opening Qty', 'Unit Price', 'Box Std', 'Box Qty', 'Pkt Std', 'Pkt Qty', 'Loose/Cut', 'Inwards', 'Outwards', 'Closing Stock', 'Stock Value'];
+      const tableColumns = ['Item Code', 'Barcode', 'Item Description', 'Branch', 'Warehouse', 'Location', 'Brand', 'Opening Qty', 'Unit Price', 'Box Std', 'Box Qty', 'Pkt Std', 'Pkt Qty', 'Loose/Cut', 'Inwards', 'Outwards', 'Closing Stock', 'Stock Value'];
       const tableRows = items.map(i => [
-        i.sku, i.barcode || '', i.name, i.warehouses?.[0]?.warehouse_name || '', i.brand || '',
+        i.sku, i.barcode || '', i.name, '', i.warehouses?.[0]?.warehouse_name || '', '', i.brand || '',
         i.opening_qty, i.purchase_price, i.box_std, i.box_qty,
         i.pkt_std, i.pkt_qty, i.loose_cut_qty,
         i.inwards, i.outwards, i.closing_stock, i.stock_value.toFixed(2),
@@ -357,7 +377,11 @@ export const InventoryPage: React.FC = () => {
       const pktStdPatterns = ['pkt std', 'pkt_std', 'pktstd'];
       const inwardsPatterns = ['inwards', 'inward'];
       const outwardsPatterns = ['outwards', 'outward'];
-      const whPatterns = ['location', 'warehouse', 'godown', 'store', 'branch'];
+      const whPatterns = ['warehouse', 'godown', 'store'];
+      const locationPatterns = ['location', 'physical location', 'shelf', 'rack', 'bin'];
+      const branchPatterns = ['branch', 'outlet'];
+      const companyPatterns = ['company', 'firm'];
+      const remarksPatterns = ['remarks', 'notes', 'comment', 'description'];
 
       let success = 0;
       let failed = 0;
@@ -429,12 +453,22 @@ export const InventoryPage: React.FC = () => {
         }
 
         const warehouseName = findCol(row, whPatterns);
+        const locCode = findCol(row, locationPatterns);
+        const branchName = findCol(row, branchPatterns);
+        const companyName = findCol(row, companyPatterns);
+        const remarks = findCol(row, remarksPatterns);
         let warehouseId: string | null = null;
         if (warehouseName) {
           warehouseId = whMap.get(warehouseName.toLowerCase()) || null;
+        } else if (locCode) {
+          for (const [wname, wid] of whMap) {
+            if (locCode.toLowerCase().includes(wname)) { warehouseId = wid; break; }
+          }
         }
-        if (!warehouseId && allWarehouses.length > 0) warehouseId = allWarehouses[0].id;
-        if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - no warehouse available`); continue; }
+        if (!warehouseId) {
+          if (allWarehouses.length > 0) warehouseId = allWarehouses[0].id;
+          else { failed++; errors.push(`Row ${rowNum}: Skipped - no warehouse available`); continue; }
+        }
 
         const { error } = await upsertInventoryStock(productId, warehouseId, quantity, user?.id, {
           box_std: boxStd,
@@ -444,8 +478,19 @@ export const InventoryPage: React.FC = () => {
           loose_cut_qty: loose,
           inwards,
           outwards,
+          remarks: remarks || undefined,
         });
         if (error) { failed++; errors.push(`Row ${rowNum}: ${error.message}`); continue; }
+
+        if (locCode) {
+          const { error: locErr } = await supabase.from('product_locations').upsert({
+            product_id: productId,
+            warehouse_id: warehouseId,
+            location_code: locCode,
+            quantity: 0,
+          }, { onConflict: 'product_id,warehouse_id,location_code', ignoreDuplicates: false });
+          if (locErr) errors.push(`Row ${rowNum}: Failed to create location "${locCode}": ${locErr.message}`);
+        }
         success++;
       }
 
@@ -494,7 +539,11 @@ export const InventoryPage: React.FC = () => {
         'Loose/Cut Qty': 12,
         'Inwards': 0,
         'Outwards': 0,
+        'Company': '',
+        'Branch': '',
+        'Warehouse': '',
         'Location': 'Main Warehouse',
+        'Remarks': '',
       },
       {
         'Item Code': '',
@@ -509,7 +558,11 @@ export const InventoryPage: React.FC = () => {
         'Loose/Cut Qty': '',
         'Inwards': '',
         'Outwards': '',
+        'Company': '',
+        'Branch': '',
+        'Warehouse': '',
         'Location': '',
+        'Remarks': '',
       },
     ];
     const ws = XLSX.utils.json_to_sheet(template);
@@ -520,6 +573,7 @@ export const InventoryPage: React.FC = () => {
   };
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const companyOptions = useMemo(() => [{ value: 'all', label: 'All Companies' }, ...allCompanies.map(c => ({ value: c.id, label: c.name }))], [allCompanies]);
   const branchOptions = useMemo(() => [{ value: 'all', label: 'All Branches' }, ...branches.map(b => ({ value: b.id, label: b.name }))], [branches]);
   const warehouseOptions = useMemo(() => [{ value: 'all', label: 'All Warehouses' }, ...warehouses.map(w => ({ value: w.id, label: w.name }))], [warehouses]);
   const brandOptions = useMemo(() => [{ value: 'all', label: 'All Brands' }, ...brands.map(b => ({ value: b, label: b }))], [brands]);
@@ -605,6 +659,7 @@ export const InventoryPage: React.FC = () => {
 
           {/* Row 2: Other Filters */}
           <div className="flex flex-wrap items-end gap-3">
+            <FilterDropdown label="Company" value={companyId} options={companyOptions} onChange={setCompanyId} icon={<Building2 size={13} />} />
             <FilterDropdown label="Branch" value={branchId} options={branchOptions} onChange={setBranchId} icon={<Layers size={13} />} />
             <FilterDropdown label="Warehouse" value={warehouseId} options={warehouseOptions} onChange={setWarehouseId} icon={<WarehouseIcon size={13} />} />
             <FilterDropdown label="Brand" value={brand} options={brandOptions} onChange={setBrand} icon={<Tag size={13} />} />
@@ -644,6 +699,8 @@ export const InventoryPage: React.FC = () => {
                     { key: 'sku', label: 'Item Code', w: 'w-[90px]' },
                     { key: 'barcode', label: 'Barcode', w: 'w-[90px]' },
                     { key: 'name', label: 'Item Description', w: 'min-w-[160px]' },
+                    { key: '', label: 'Branch', w: 'w-[90px]' },
+                    { key: '', label: 'Warehouse', w: 'w-[90px]' },
                     { key: '', label: 'Location', w: 'w-[100px]' },
                     { key: 'opening_qty', label: 'Opening Qty', w: 'w-[70px]' },
                     { key: 'purchase_price', label: 'Unit Price', w: 'w-[75px]' },
@@ -674,13 +731,13 @@ export const InventoryPage: React.FC = () => {
                 {loading ? (
                   [...Array(8)].map((_, i) => (
                     <tr key={i} className="border-b border-border">
-                      {[...Array(17)].map((_, j) => (
+                      {[...Array(19)].map((_, j) => (
                         <td key={j} className="px-2 py-2"><div className="h-4 w-full animate-pulse rounded bg-muted" /></td>
                       ))}
                     </tr>
                   ))
                 ) : items.length === 0 ? (
-                  <tr><td colSpan={17} className="px-4 py-12 text-center text-muted-foreground">
+                  <tr><td colSpan={19} className="px-4 py-12 text-center text-muted-foreground">
                     <div className="flex flex-col items-center gap-2">
                       <Package size={32} className="text-muted-foreground/30" />
                       <p className="text-sm">No inventory items found matching filters</p>
@@ -695,7 +752,9 @@ export const InventoryPage: React.FC = () => {
                     <td className="whitespace-nowrap px-2 py-2 font-mono text-primary font-medium">{item.sku}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">{item.barcode || '—'}</td>
                     <td className="whitespace-nowrap px-2 py-2 font-medium max-w-[200px] truncate" title={item.name}>{item.name}</td>
+                    <td className="whitespace-nowrap px-2 py-2 text-xs text-muted-foreground">{'—'}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-xs text-muted-foreground">{item.warehouses?.[0]?.warehouse_name || '—'}</td>
+                    <td className="whitespace-nowrap px-2 py-2 text-xs text-muted-foreground">{'—'}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{fmt(item.opening_qty)}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-muted-foreground">{fmtCurrency(item.purchase_price)}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{item.box_std || 0}</td>
@@ -818,6 +877,34 @@ export const InventoryPage: React.FC = () => {
 
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1">
+                  <MapPin size={12} /> Product Locations
+                </h3>
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/50">
+                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Location</th>
+                        <th className="px-3 py-2 text-left font-medium text-muted-foreground">Warehouse</th>
+                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">Quantity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productLocations.length === 0 ? (
+                        <tr><td colSpan={3} className="px-3 py-4 text-center text-muted-foreground">No locations configured</td></tr>
+                      ) : productLocations.map(l => (
+                        <tr key={`${l.location_code}-${l.warehouse_name}`} className="border-b border-border last:border-0">
+                          <td className="px-3 py-2 font-medium">{l.location_code}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{l.warehouse_name}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(l.quantity)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1">
                   <TrendingUp size={12} /> Stock Movement
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -872,8 +959,8 @@ export const InventoryPage: React.FC = () => {
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
               <p className="font-medium text-foreground">Required: <span className="text-foreground">Item Code</span> — rest are optional</p>
-              <code className="block">Item Code, Barcode, Item Description, Opening Qty, Unit Price, Box Std, Box Qty, Pkt Std, Pkt Qty, Loose/Cut Qty, Inwards, Outwards, Location</code>
-              <p>Download the <strong>Template</strong> for exact column format. New Item Codes are auto-created. Missing barcodes are auto-generated. If Location is blank, first warehouse is used.</p>
+              <code className="block text-[10px] leading-relaxed">Item Code, Barcode, Item Description, Opening Qty, Unit Price, Box Std, Box Qty, Pkt Std, Pkt Qty, Loose/Cut Qty, Inwards, Outwards, Company, Branch, Warehouse, Location, Remarks</code>
+              <p>Download the <strong>Template</strong> for exact column format. New Item Codes are auto-created. Missing barcodes are auto-generated. If Warehouse is blank, first available warehouse is used.</p>
             </div>
 
             <div>

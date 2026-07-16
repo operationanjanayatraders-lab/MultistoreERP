@@ -1,11 +1,11 @@
 import { supabase } from '@/db/supabase';
 import type {
-  Profile, CompanySettings, Warehouse, ProductCategory, Product,
+  Profile, CompanySettings, Company, Warehouse, ProductCategory, Product,
   InventoryItem, InventoryTransaction, StockSummary, InventorySummaryCards,
   TransactionType, Customer, Supplier, SupplierAttachment, SupplierLedgerEntry,
   SalesOrder, PurchaseOrder, StockTransfer, DamageRecord,
   SalesReturn, PurchaseReturn, Account, Voucher, Notification, Message,
-  PhysicalStockInventory, ProformaInvoice, Quotation
+  PhysicalStockInventory, ProformaInvoice, Quotation, ProductLocation
 } from '@/types/types';
 
 // ── Profiles ──────────────────────────────────────────────
@@ -108,6 +108,34 @@ export const upsertWarehouse = async (w: Partial<Warehouse>) => {
 
 export const deleteWarehouse = async (id: string) => {
   return supabase.from('warehouses').delete().eq('id', id);
+};
+
+// ── Companies ────────────────────────────────────────────────
+export const getCompanies = async () => {
+  const { data, error } = await supabase
+    .from('companies').select('*').eq('is_active', true).order('name').limit(50);
+  return { data: Array.isArray(data) ? data as Company[] : [], error };
+};
+
+// ── Product Locations ────────────────────────────────────────
+export const getProductLocations = async (productId: string) => {
+  const { data, error } = await supabase
+    .from('product_locations').select('*, warehouses(id,name)')
+    .eq('product_id', productId).order('location_code');
+  return { data: Array.isArray(data) ? data as ProductLocation[] : [], error };
+};
+
+export const upsertProductLocation = async (loc: Partial<ProductLocation>) => {
+  if (loc.id) {
+    const { data, error } = await supabase.from('product_locations').update(loc).eq('id', loc.id).select().maybeSingle();
+    return { data, error };
+  }
+  const { data, error } = await supabase.from('product_locations').insert(loc).select().maybeSingle();
+  return { data, error };
+};
+
+export const deleteProductLocation = async (id: string) => {
+  return supabase.from('product_locations').delete().eq('id', id);
 };
 
 // ── Product Categories ─────────────────────────────────────
@@ -283,7 +311,7 @@ export const getInventoryItems = async (opts: {
 
   // Get transactions for date range
   let txQuery = supabase.from('inventory_transactions')
-    .select('product_id, warehouse_id, transaction_type, quantity')
+    .select('product_id, warehouse_id, transaction_type, quantity, remarks')
     .order('transaction_date');
   if (fromDate) txQuery = txQuery.gte('transaction_date', fromDate);
   if (toDate) txQuery = txQuery.lte('transaction_date', toDate);
@@ -496,6 +524,7 @@ export const upsertInventoryStock = async (
   breakdown?: {
     box_std?: number; box_qty?: number; pkt_std?: number;
     pkt_qty?: number; loose_cut_qty?: number; inwards?: number; outwards?: number;
+    remarks?: string;
   }
 ) => {
   const { data: existing } = await supabase
