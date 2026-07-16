@@ -56,7 +56,7 @@ export const PhysicalStockPage: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     const [recRes, prodRes, whRes, brRes, coRes] = await Promise.all([
-      getPhysicalStockInventory(page, PAGE_SIZE),
+      getPhysicalStockInventory(page, PAGE_SIZE, warehouseId),
       getProducts(1, 500),
       getWarehouses(),
       getBranches(),
@@ -69,7 +69,7 @@ export const PhysicalStockPage: React.FC = () => {
     setBranches(brRes.data);
     setCompanies(coRes.data);
     setLoading(false);
-  }, [page]);
+  }, [page, warehouseId]);
 
   useEffect(() => { load(); }, [load]);
 

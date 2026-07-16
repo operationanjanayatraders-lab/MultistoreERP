@@ -203,7 +203,7 @@ export const getInventory = async (page = 1, pageSize = 20) => {
 
 // ── Inventory Stock Summary (aggregated from transactions) ─
 export const getInventorySummaryCards = async (
-  fromDate?: string, toDate?: string, warehouseId?: string, branchId?: string, brand?: string, status?: string
+  fromDate?: string, toDate?: string, warehouseId?: string, branchId?: string, companyId?: string, brand?: string, status?: string
 ): Promise<{ data: InventorySummaryCards | null; error: unknown }> => {
   // Get all products with their purchase prices and reorder levels
   const { data: products } = await supabase
@@ -215,11 +215,30 @@ export const getInventorySummaryCards = async (
 
   // Get inventory quantities per product+warehouse
   let invQuery = supabase.from('inventory').select('product_id, warehouse_id, quantity');
+  // Resolve company → branches → warehouse IDs
+  let summaryWhIds: string[] | null = null;
+  if (companyId && companyId !== 'all') {
+    const { data: brs } = await supabase.from('branches').select('id').eq('company_id', companyId);
+    if (brs && brs.length > 0) {
+      const { data: whs } = await supabase.from('warehouses').select('id').in('branch_id', brs.map(b => b.id));
+      if (whs && whs.length > 0) summaryWhIds = whs.map(w => w.id);
+      else summaryWhIds = [];
+    } else {
+      summaryWhIds = [];
+    }
+  }
   // Branch filter
   if (branchId && branchId !== 'all') {
     const { data: whs } = await supabase.from('warehouses').select('id').eq('branch_id', branchId);
-    if (whs && whs.length > 0) invQuery = invQuery.in('warehouse_id', whs.map(w => w.id));
+    if (whs && whs.length > 0) {
+      const whIds = whs.map(w => w.id);
+      summaryWhIds = summaryWhIds ? summaryWhIds.filter(id => whIds.includes(id)) : whIds;
+    } else {
+      summaryWhIds = [];
+    }
   }
+  if (summaryWhIds && summaryWhIds.length > 0) invQuery = invQuery.in('warehouse_id', summaryWhIds);
+  else if (summaryWhIds && summaryWhIds.length === 0) invQuery = invQuery.in('warehouse_id', ['__none__']);
   if (warehouseId && warehouseId !== 'all') invQuery = invQuery.eq('warehouse_id', warehouseId);
   const { data: inventory } = await invQuery;
 
@@ -281,18 +300,33 @@ export const getInventorySummaryCards = async (
 
 export const getInventoryItems = async (opts: {
   page?: number; pageSize?: number; search?: string;
-  fromDate?: string; toDate?: string; warehouseId?: string; branchId?: string; brand?: string; status?: string;
+  fromDate?: string; toDate?: string; warehouseId?: string; branchId?: string; companyId?: string; brand?: string; status?: string;
   sortBy?: string; sortDir?: 'asc' | 'desc';
 }): Promise<{ data: StockSummary[]; total: number; error: unknown }> => {
   const page = opts.page || 1;
   const pageSize = opts.pageSize || 20;
-  const { fromDate, toDate, warehouseId, branchId, brand, status, search, sortBy, sortDir } = opts;
+  const { fromDate, toDate, warehouseId, branchId, companyId, brand, status, search, sortBy, sortDir } = opts;
 
-  // If branch selected, resolve to warehouse IDs
+  // Resolve company → branches → warehouse IDs
   let branchWarehouseIds: string[] | null = null;
+  if (companyId && companyId !== 'all') {
+    const { data: brs } = await supabase.from('branches').select('id').eq('company_id', companyId);
+    if (brs && brs.length > 0) {
+      const { data: whs } = await supabase.from('warehouses').select('id').in('branch_id', brs.map(b => b.id));
+      if (whs && whs.length > 0) branchWarehouseIds = whs.map(w => w.id);
+    } else {
+      branchWarehouseIds = [];
+    }
+  }
+  // If branch selected, further narrow to branch's warehouses
   if (branchId && branchId !== 'all') {
     const { data: whs } = await supabase.from('warehouses').select('id').eq('branch_id', branchId);
-    if (whs && whs.length > 0) branchWarehouseIds = whs.map(w => w.id);
+    if (whs && whs.length > 0) {
+      const whIds = whs.map(w => w.id);
+      branchWarehouseIds = branchWarehouseIds ? branchWarehouseIds.filter(id => whIds.includes(id)) : whIds;
+    } else {
+      branchWarehouseIds = [];
+    }
   }
 
   // Get products
@@ -1080,13 +1114,15 @@ export const getDashboardStats = async () => {
 };
 
 // ── Physical Stock Inventory ───────────────────────────────
-export const getPhysicalStockInventory = async (page = 1, pageSize = 20) => {
+export const getPhysicalStockInventory = async (page = 1, pageSize = 20, warehouseId?: string) => {
   const from = (page - 1) * pageSize;
-  const { data, error, count } = await supabase
+  let q = supabase
     .from('physical_stock_inventory')
     .select('*, products(id,name,sku), warehouses(id,name)', { count: 'exact' })
     .order('inventory_date', { ascending: false })
     .range(from, from + pageSize - 1);
+  if (warehouseId && warehouseId !== 'all') q = q.eq('warehouse_id', warehouseId);
+  const { data, error, count } = await q;
   return { data: Array.isArray(data) ? data as PhysicalStockInventory[] : [], error, count: count ?? 0 };
 };
 

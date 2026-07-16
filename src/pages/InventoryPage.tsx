@@ -207,16 +207,16 @@ export const InventoryPage: React.FC = () => {
   // ── Load Data ──────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
-    const opts = { page, pageSize, search, fromDate: fromDate || undefined, toDate: toDate || undefined, warehouseId, branchId, brand, status, sortBy, sortDir };
+    const opts = { page, pageSize, search, fromDate: fromDate || undefined, toDate: toDate || undefined, warehouseId, branchId, companyId, brand, status, sortBy, sortDir };
     const [itemsRes, cardsRes] = await Promise.all([
       getInventoryItems(opts),
-      getInventorySummaryCards(fromDate, toDate, warehouseId, branchId, brand, status),
+      getInventorySummaryCards(fromDate, toDate, warehouseId, branchId, companyId, brand, status),
     ]);
     setItems(itemsRes.data);
     setTotal(itemsRes.total);
     setCards(cardsRes.data);
     setLoading(false);
-  }, [page, pageSize, search, fromDate, toDate, warehouseId, branchId, brand, status, sortBy, sortDir]);
+  }, [page, pageSize, search, fromDate, toDate, warehouseId, branchId, companyId, brand, status, sortBy, sortDir]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [search, warehouseId, branchId, brand, status, fromDate, toDate]);
