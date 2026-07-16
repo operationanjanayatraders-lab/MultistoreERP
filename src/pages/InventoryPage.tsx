@@ -210,8 +210,8 @@ export const InventoryPage: React.FC = () => {
   // ── Export CSV ───────────────────────────────────────
   const exportCSV = () => {
     try {
-      const headers = ['Item Code', 'Barcode', 'Item Description', 'Brand', 'Opening Qty', 'Unit Price', 'Box Std', 'Box Qty', 'Pkt Std', 'Pkt Qty', 'Loose/Cut Qty', 'Inwards', 'Outwards', 'Closing Stock', 'Stock Value'];
-      const rows = items.map(i => [i.sku, i.barcode || '', i.name, i.brand || '', i.opening_qty, i.purchase_price, i.box_std, i.box_qty, i.pkt_std, i.pkt_qty, i.loose_cut_qty, i.inwards, i.outwards, i.closing_stock, i.stock_value.toFixed(2)]);
+      const headers = ['Item Code', 'Barcode', 'Item Description', 'Location', 'Brand', 'Opening Qty', 'Unit Price', 'Box Std', 'Box Qty', 'Pkt Std', 'Pkt Qty', 'Loose/Cut Qty', 'Inwards', 'Outwards', 'Closing Stock', 'Stock Value'];
+      const rows = items.map(i => [i.sku, i.barcode || '', i.name, i.warehouses?.[0]?.warehouse_name || '', i.brand || '', i.opening_qty, i.purchase_price, i.box_std, i.box_qty, i.pkt_std, i.pkt_qty, i.loose_cut_qty, i.inwards, i.outwards, i.closing_stock, i.stock_value.toFixed(2)]);
       const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -228,6 +228,7 @@ export const InventoryPage: React.FC = () => {
         'Item Code': i.sku,
         'Barcode': i.barcode || '',
         'Item Description': i.name,
+        'Location': i.warehouses?.[0]?.warehouse_name || '',
         'Brand': i.brand || '',
         'Opening Qty': i.opening_qty,
         'Unit Price': i.purchase_price,
@@ -258,9 +259,9 @@ export const InventoryPage: React.FC = () => {
       doc.text('Inventory Report', 14, 15);
       doc.setFontSize(9);
       doc.text(`Date: ${today}`, 14, 22);
-      const tableColumns = ['Item Code', 'Barcode', 'Item Description', 'Brand', 'Opening Qty', 'Unit Price', 'Box Std', 'Box Qty', 'Pkt Std', 'Pkt Qty', 'Loose/Cut', 'Inwards', 'Outwards', 'Closing Stock', 'Stock Value'];
+      const tableColumns = ['Item Code', 'Barcode', 'Item Description', 'Location', 'Brand', 'Opening Qty', 'Unit Price', 'Box Std', 'Box Qty', 'Pkt Std', 'Pkt Qty', 'Loose/Cut', 'Inwards', 'Outwards', 'Closing Stock', 'Stock Value'];
       const tableRows = items.map(i => [
-        i.sku, i.barcode || '', i.name, i.brand || '',
+        i.sku, i.barcode || '', i.name, i.warehouses?.[0]?.warehouse_name || '', i.brand || '',
         i.opening_qty, i.purchase_price, i.box_std, i.box_qty,
         i.pkt_std, i.pkt_qty, i.loose_cut_qty,
         i.inwards, i.outwards, i.closing_stock, i.stock_value.toFixed(2),
@@ -435,7 +436,15 @@ export const InventoryPage: React.FC = () => {
         if (!warehouseId && allWarehouses.length > 0) warehouseId = allWarehouses[0].id;
         if (!warehouseId) { failed++; errors.push(`Row ${rowNum}: Skipped - no warehouse available`); continue; }
 
-        const { error } = await upsertInventoryStock(productId, warehouseId, quantity, user?.id);
+        const { error } = await upsertInventoryStock(productId, warehouseId, quantity, user?.id, {
+          box_std: boxStd,
+          box_qty: boxQty,
+          pkt_std: pktStd,
+          pkt_qty: pktQty,
+          loose_cut_qty: loose,
+          inwards,
+          outwards,
+        });
         if (error) { failed++; errors.push(`Row ${rowNum}: ${error.message}`); continue; }
         success++;
       }
@@ -635,6 +644,7 @@ export const InventoryPage: React.FC = () => {
                     { key: 'sku', label: 'Item Code', w: 'w-[90px]' },
                     { key: 'barcode', label: 'Barcode', w: 'w-[90px]' },
                     { key: 'name', label: 'Item Description', w: 'min-w-[160px]' },
+                    { key: '', label: 'Location', w: 'w-[100px]' },
                     { key: 'opening_qty', label: 'Opening Qty', w: 'w-[70px]' },
                     { key: 'purchase_price', label: 'Unit Price', w: 'w-[75px]' },
                     { key: 'box_std', label: 'Box Std', w: 'w-[60px]' },
@@ -664,13 +674,13 @@ export const InventoryPage: React.FC = () => {
                 {loading ? (
                   [...Array(8)].map((_, i) => (
                     <tr key={i} className="border-b border-border">
-                      {[...Array(16)].map((_, j) => (
+                      {[...Array(17)].map((_, j) => (
                         <td key={j} className="px-2 py-2"><div className="h-4 w-full animate-pulse rounded bg-muted" /></td>
                       ))}
                     </tr>
                   ))
                 ) : items.length === 0 ? (
-                  <tr><td colSpan={16} className="px-4 py-12 text-center text-muted-foreground">
+                  <tr><td colSpan={17} className="px-4 py-12 text-center text-muted-foreground">
                     <div className="flex flex-col items-center gap-2">
                       <Package size={32} className="text-muted-foreground/30" />
                       <p className="text-sm">No inventory items found matching filters</p>
@@ -685,6 +695,7 @@ export const InventoryPage: React.FC = () => {
                     <td className="whitespace-nowrap px-2 py-2 font-mono text-primary font-medium">{item.sku}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">{item.barcode || '—'}</td>
                     <td className="whitespace-nowrap px-2 py-2 font-medium max-w-[200px] truncate" title={item.name}>{item.name}</td>
+                    <td className="whitespace-nowrap px-2 py-2 text-xs text-muted-foreground">{item.warehouses?.[0]?.warehouse_name || '—'}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{fmt(item.opening_qty)}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-muted-foreground">{fmtCurrency(item.purchase_price)}</td>
                     <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{item.box_std || 0}</td>

@@ -312,6 +312,27 @@ export const getInventoryItems = async (opts: {
     whPerProduct.get(pid)!.push({ warehouse_id: wid, warehouse_name: whNames.get(wid) || wid, quantity: qty });
   }
 
+  // Extract latest breakdown from ADJUSTMENT transactions
+  const productBreakdown = new Map<string, Record<string, number>>();
+  for (const tx of (txData || [])) {
+    if (tx.transaction_type === 'ADJUSTMENT' && tx.remarks && tx.remarks.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(tx.remarks);
+        if (!productBreakdown.has(tx.product_id)) {
+          productBreakdown.set(tx.product_id, {
+            box_std: parsed.box_std || 0,
+            box_qty: parsed.box_qty || 0,
+            pkt_std: parsed.pkt_std || 0,
+            pkt_qty: parsed.pkt_qty || 0,
+            loose_cut_qty: parsed.loose_cut_qty || 0,
+            inwards: parsed.inwards || 0,
+            outwards: parsed.outwards || 0,
+          });
+        }
+      } catch { /* skip non-JSON remarks */ }
+    }
+  }
+
   // Calculate transaction summaries per product
   const txIn = new Map<string, number>(); // PURCHASE + TRANSFER_IN + SALES_RETURN
   const txOut = new Map<string, number>(); // SALE + TRANSFER_OUT + PURCHASE_RETURN + DAMAGE + ADJUSTMENT
@@ -377,6 +398,7 @@ export const getInventoryItems = async (opts: {
     const closing = totalQty;
     const stockValue = closing * (p.purchase_price || 0);
 
+    const bd = productBreakdown.get(pid) || {};
     summaries.push({
       product_id: pid,
       sku: p.sku,
@@ -388,9 +410,9 @@ export const getInventoryItems = async (opts: {
       unit: p.unit,
       purchase_price: p.purchase_price || 0,
       reorder_level: reorder,
-      opening_qty: openingQty,
-      inwards: inwardsVal,
-      outwards: get(txByType['SALE']),
+      opening_qty: bd.opening_qty ?? openingQty,
+      inwards: bd.inwards ?? inwardsVal,
+      outwards: bd.outwards ?? get(txByType['SALE']),
       transfer_in: transferIn,
       transfer_out: transferOut,
       sales_return: salesReturn,
@@ -399,11 +421,11 @@ export const getInventoryItems = async (opts: {
       adjustment: adjustmentVal,
       closing_stock: closing,
       stock_value: stockValue,
-      box_std: 0,
-      box_qty: 0,
-      pkt_std: 0,
-      pkt_qty: 0,
-      loose_cut_qty: 0,
+      box_std: bd.box_std ?? 0,
+      box_qty: bd.box_qty ?? 0,
+      pkt_std: bd.pkt_std ?? 0,
+      pkt_qty: bd.pkt_qty ?? 0,
+      loose_cut_qty: bd.loose_cut_qty ?? 0,
       warehouses: whPerProduct.get(pid) || [],
     });
   }
@@ -470,7 +492,11 @@ export const upsertInventoryStock = async (
   productId: string,
   warehouseId: string,
   quantity: number,
-  userId?: string
+  userId?: string,
+  breakdown?: {
+    box_std?: number; box_qty?: number; pkt_std?: number;
+    pkt_qty?: number; loose_cut_qty?: number; inwards?: number; outwards?: number;
+  }
 ) => {
   const { data: existing } = await supabase
     .from('inventory')
@@ -489,13 +515,14 @@ export const upsertInventoryStock = async (
   if (upsertError) return { error: upsertError };
 
   if (diff !== 0) {
+    const hasBreakdown = breakdown && (breakdown.box_std || breakdown.box_qty || breakdown.pkt_std || breakdown.pkt_qty || breakdown.loose_cut_qty || breakdown.inwards || breakdown.outwards);
     await supabase.from('inventory_transactions').insert({
       product_id: productId,
       warehouse_id: warehouseId,
       transaction_type: 'ADJUSTMENT',
       quantity: diff,
       transaction_date: new Date().toISOString().split('T')[0],
-      remarks: 'Manual stock update via Excel import',
+      remarks: hasBreakdown ? JSON.stringify(breakdown) : 'Manual stock update via Excel import',
       created_by: userId || null,
     });
   }
