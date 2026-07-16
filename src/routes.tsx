@@ -25,6 +25,7 @@ import { SupplierMasterPage } from './pages/SupplierMasterPage';
 import { BranchesPage } from './pages/BranchesPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { DailyTaskPage } from './pages/DailyTaskPage';
+import { ItemMastersPage } from './pages/ItemMastersPage';
 
 export interface RouteConfig {
   name: string;
@@ -40,6 +41,7 @@ export const routes: RouteConfig[] = [
   { name: 'Reset Password',       path: '/reset-password',         element: <ResetPasswordPage />,      public: true },
   { name: 'Dashboard',            path: '/dashboard',              element: <DashboardPage /> },
   { name: 'Item Master',          path: '/products',               element: <ProductsPage /> },
+  { name: 'Item Masters',         path: '/item-masters',           element: <ItemMastersPage /> },
   { name: 'Inventory',            path: '/inventory',              element: <InventoryPage /> },
   { name: 'Sales',                path: '/sales',                  element: <SalesPage /> },
   { name: 'Purchase',             path: '/purchase',               element: <PurchasePage /> },

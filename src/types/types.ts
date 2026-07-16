@@ -99,6 +99,31 @@ export interface Product {
   product_categories?: ProductCategory;
 }
 
+export interface Unit {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface BrandMaster {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface SubBrand {
+  id: string;
+  name: string;
+  brand_id: string | null;
+  created_at: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
 export interface InventoryItem {
   id: string;
   product_id: string;

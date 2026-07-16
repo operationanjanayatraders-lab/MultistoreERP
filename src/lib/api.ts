@@ -5,7 +5,8 @@ import type {
   TransactionType, Customer, Supplier, SupplierAttachment, SupplierLedgerEntry,
   SalesOrder, PurchaseOrder, StockTransfer, DamageRecord,
   SalesReturn, PurchaseReturn, Account, Voucher, Notification, Message,
-  PhysicalStockInventory, ProformaInvoice, Quotation, ProductLocation
+  PhysicalStockInventory, ProformaInvoice, Quotation, ProductLocation,
+  Unit, BrandMaster, SubBrand, Group
 } from '@/types/types';
 
 // ── Profiles ──────────────────────────────────────────────
@@ -158,6 +159,47 @@ export const upsertProductCategory = async (cat: Partial<ProductCategory>) => {
 export const deleteProductCategory = async (id: string) => {
   return supabase.from('product_categories').delete().eq('id', id);
 };
+
+// ── Item Masters (units, brands, sub_brands, groups) ───────
+export const getUnits = async () => {
+  const { data, error } = await supabase.from('units').select('*').order('name').limit(100);
+  return { data: Array.isArray(data) ? data as Unit[] : [], error };
+};
+export const upsertUnit = async (u: Partial<Unit>) => {
+  if (u.id) { const { data, error } = await supabase.from('units').update(u).eq('id', u.id).select().maybeSingle(); return { data, error }; }
+  const { data, error } = await supabase.from('units').insert(u).select().maybeSingle(); return { data, error };
+};
+export const deleteUnit = async (id: string) => supabase.from('units').delete().eq('id', id);
+
+export const getBrandsMaster = async () => {
+  const { data, error } = await supabase.from('brands_master').select('*').order('name').limit(100);
+  return { data: Array.isArray(data) ? data as BrandMaster[] : [], error };
+};
+export const upsertBrandMaster = async (b: Partial<BrandMaster>) => {
+  if (b.id) { const { data, error } = await supabase.from('brands_master').update(b).eq('id', b.id).select().maybeSingle(); return { data, error }; }
+  const { data, error } = await supabase.from('brands_master').insert(b).select().maybeSingle(); return { data, error };
+};
+export const deleteBrandMaster = async (id: string) => supabase.from('brands_master').delete().eq('id', id);
+
+export const getSubBrands = async () => {
+  const { data, error } = await supabase.from('sub_brands').select('*, brands_master(id,name)').order('name').limit(100);
+  return { data: Array.isArray(data) ? data as SubBrand[] : [], error };
+};
+export const upsertSubBrand = async (s: Partial<SubBrand>) => {
+  if (s.id) { const { data, error } = await supabase.from('sub_brands').update(s).eq('id', s.id).select().maybeSingle(); return { data, error }; }
+  const { data, error } = await supabase.from('sub_brands').insert(s).select().maybeSingle(); return { data, error };
+};
+export const deleteSubBrand = async (id: string) => supabase.from('sub_brands').delete().eq('id', id);
+
+export const getGroups = async () => {
+  const { data, error } = await supabase.from('groups').select('*').order('name').limit(100);
+  return { data: Array.isArray(data) ? data as Group[] : [], error };
+};
+export const upsertGroup = async (g: Partial<Group>) => {
+  if (g.id) { const { data, error } = await supabase.from('groups').update(g).eq('id', g.id).select().maybeSingle(); return { data, error }; }
+  const { data, error } = await supabase.from('groups').insert(g).select().maybeSingle(); return { data, error };
+};
+export const deleteGroup = async (id: string) => supabase.from('groups').delete().eq('id', id);
 
 // ── Products ───────────────────────────────────────────────
 export const getProducts = async (page = 1, pageSize = 20, search = '') => {

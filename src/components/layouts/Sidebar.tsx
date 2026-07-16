@@ -5,7 +5,7 @@ import {
   AlertTriangle, RotateCcw, RotateCw, BookOpen, Settings, ChevronDown,
   ChevronRight, Menu, X, Building2, Users, Palette, ClipboardList,
   FileText, Receipt, BarChart2, BookMarked, ClipboardCheck,
-  LogOut, UserCircle, Warehouse
+  LogOut, UserCircle, Warehouse, Tags
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -22,7 +22,13 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Dashboard',      path: '/dashboard',     icon: <LayoutDashboard size={16} />, permKey: 'Dashboard' },
-  { label: 'Item Master',    path: '/products',      icon: <Package size={16} />,         permKey: 'Item Master' },
+  {
+    label: 'Item Master', icon: <Package size={16} />, permKey: 'Item Master',
+    children: [
+      { label: 'Items',       path: '/products',      icon: <Package size={14} /> },
+      { label: 'Item Masters', path: '/item-masters', icon: <Tags size={14} /> },
+    ]
+  },
   { label: 'Inventory',      path: '/inventory',     icon: <Warehouse size={16} />,       permKey: 'Inventory' },
   { label: 'Branches',       path: '/branches',      icon: <Building2 size={16} />,       permKey: 'Inventory' },
   {

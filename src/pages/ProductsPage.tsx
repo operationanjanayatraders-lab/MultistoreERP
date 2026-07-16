@@ -1,13 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Plus, Pencil, Trash2, Search, X } from 'lucide-react';
 import { MainLayout } from '@/components/layouts/MainLayout';
-import { getProducts, deleteProduct, upsertProduct, getProductCategories } from '@/lib/api';
-import type { Product, ProductCategory } from '@/types/types';
+import { getProducts, deleteProduct, upsertProduct, getProductCategories, getUnits, getBrandsMaster, getSubBrands, getGroups } from '@/lib/api';
+import type { Product, ProductCategory, Unit, BrandMaster, SubBrand, Group } from '@/types/types';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-
-const UNITS = ['pcs', 'kg', 'ltr', 'box', 'set', 'mtr', 'dozen', 'pair'];
 
 const inp = 'w-full rounded border border-input bg-input px-3 py-2 text-sm !text-gray-900 placeholder:text-gray-600 focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring';
 const lbl = 'mb-1 block text-xs font-medium text-muted-foreground';
@@ -15,19 +13,25 @@ const lbl = 'mb-1 block text-xs font-medium text-muted-foreground';
 const ProductForm: React.FC<{
   initial?: Partial<Product>;
   categories: ProductCategory[];
+  units: Unit[];
+  brands: BrandMaster[];
+  subBrands: SubBrand[];
+  groups: Group[];
   onSave: (p: Partial<Product>) => Promise<void>;
   onClose: () => void;
-}> = ({ initial, categories, onSave, onClose }) => {
+}> = ({ initial, categories, units, brands, subBrands, groups, onSave, onClose }) => {
   const [form, setForm] = useState<Partial<Product>>({
     name: '', sku: '', barcode: '', unit: 'pcs',
     purchase_price: 0, selling_price: 0, reorder_level: 0,
     is_active: true, description: '', category_id: '',
-    brand: '', sub_brand: '', group_name: '', sub_category: '',
+    brand: '', sub_brand: '', group_name: '',
     hsn_code: '', gst_percent: 0, opening_stock: 0,
     ...initial,
   });
   const [saving, setSaving] = useState(false);
   const set = (k: keyof Product, v: unknown) => setForm(f => ({ ...f, [k]: v }));
+
+  const filteredSubBrands = subBrands.filter(s => !form.brand || s.brand_id === brands.find(b => b.name === form.brand)?.id);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,8 +69,9 @@ const ProductForm: React.FC<{
           </div>
           <div>
             <label className={lbl}>Unit</label>
-            <select value={form.unit || 'pcs'} onChange={e => set('unit', e.target.value)} className={inp}>
-              {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+            <select value={form.unit || ''} onChange={e => set('unit', e.target.value)} className={inp}>
+              <option value="">Select…</option>
+              {units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
             </select>
           </div>
         </div>
@@ -78,19 +83,24 @@ const ProductForm: React.FC<{
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <div>
             <label className={lbl}>Brand</label>
-            <input value={form.brand || ''} onChange={e => set('brand', e.target.value)} className={inp} />
+            <select value={form.brand || ''} onChange={e => { set('brand', e.target.value); set('sub_brand', ''); }} className={inp}>
+              <option value="">Select…</option>
+              {brands.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+            </select>
           </div>
           <div>
             <label className={lbl}>Sub-Brand</label>
-            <input value={form.sub_brand || ''} onChange={e => set('sub_brand', e.target.value)} className={inp} />
+            <select value={form.sub_brand || ''} onChange={e => set('sub_brand', e.target.value)} className={inp}>
+              <option value="">Select…</option>
+              {filteredSubBrands.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
           </div>
           <div>
             <label className={lbl}>Group</label>
-            <input value={form.group_name || ''} onChange={e => set('group_name', e.target.value)} className={inp} />
-          </div>
-          <div>
-            <label className={lbl}>Sub-Category</label>
-            <input value={form.sub_category || ''} onChange={e => set('sub_category', e.target.value)} className={inp} />
+            <select value={form.group_name || ''} onChange={e => set('group_name', e.target.value)} className={inp}>
+              <option value="">Select…</option>
+              {groups.map(g => <option key={g.id} value={g.name}>{g.name}</option>)}
+            </select>
           </div>
           <div>
             <label className={lbl}>HSN Code</label>
@@ -154,6 +164,10 @@ const ProductForm: React.FC<{
 export const ProductsPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [brands, setBrands] = useState<BrandMaster[]>([]);
+  const [subBrands, setSubBrands] = useState<SubBrand[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -166,10 +180,17 @@ export const ProductsPage: React.FC = () => {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [prodRes, catRes] = await Promise.all([getProducts(page, PAGE_SIZE, search), getProductCategories()]);
+    const [prodRes, catRes, uniRes, braRes, subRes, grpRes] = await Promise.all([
+      getProducts(page, PAGE_SIZE, search), getProductCategories(),
+      getUnits(), getBrandsMaster(), getSubBrands(), getGroups(),
+    ]);
     setProducts(prodRes.data);
     setTotal(prodRes.count);
     setCategories(catRes.data);
+    setUnits(uniRes.data);
+    setBrands(braRes.data);
+    setSubBrands(subRes.data);
+    setGroups(grpRes.data);
     setLoading(false);
   }, [page, search]);
 
@@ -228,7 +249,7 @@ export const ProductsPage: React.FC = () => {
           <table className="w-full min-w-max">
             <thead>
               <tr className="border-b border-border bg-muted/50">
-                {['Item Code', 'Item Name', 'Brand', 'Sub-Brand', 'Group', 'Category', 'Sub-Cat', 'HSN', 'GST%', 'Opening Stock', 'Unit', 'Sell Price', 'Status', 'Actions'].map(h => (
+                {['Item Code', 'Item Name', 'Brand', 'Sub-Brand', 'Group', 'Category', 'HSN', 'GST%', 'Opening Stock', 'Unit', 'Sell Price', 'Status', 'Actions'].map(h => (
                   <th key={h} className="whitespace-nowrap px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">{h}</th>
                 ))}
               </tr>
@@ -237,11 +258,11 @@ export const ProductsPage: React.FC = () => {
               {loading ? (
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-border">
-                    {[...Array(14)].map((_, j) => <td key={j} className="px-3 py-2.5"><div className="h-4 w-16 animate-pulse rounded bg-muted" /></td>)}
+                    {[...Array(13)].map((_, j) => <td key={j} className="px-3 py-2.5"><div className="h-4 w-16 animate-pulse rounded bg-muted" /></td>)}
                   </tr>
                 ))
               ) : products.length === 0 ? (
-                <tr><td colSpan={14} className="px-4 py-10 text-center text-sm text-muted-foreground">No items found</td></tr>
+                <tr><td colSpan={13} className="px-4 py-10 text-center text-sm text-muted-foreground">No items found</td></tr>
               ) : products.map(p => (
                 <tr key={p.id} className="border-b border-border erp-table-row">
                   <td className="whitespace-nowrap px-3 py-2.5 text-xs font-medium text-primary">{p.sku}</td>
@@ -250,7 +271,6 @@ export const ProductsPage: React.FC = () => {
                   <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">{p.sub_brand || '—'}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">{p.group_name || '—'}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">{p.product_categories?.name || '—'}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">{p.sub_category || '—'}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">{p.hsn_code || '—'}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-xs text-right tabular-nums">{p.gst_percent ?? 0}%</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-xs text-right tabular-nums">{p.opening_stock ?? 0}</td>
@@ -297,8 +317,8 @@ export const ProductsPage: React.FC = () => {
           <DialogHeader>
             <DialogTitle>{editProduct ? 'Modify Item' : 'Add Item'}</DialogTitle>
           </DialogHeader>
-          <ProductForm initial={editProduct} categories={categories} onSave={handleSave}
-            onClose={() => { setFormOpen(false); setEditProduct(undefined); }} />
+          <ProductForm initial={editProduct} categories={categories} units={units} brands={brands} subBrands={subBrands} groups={groups}
+            onSave={handleSave} onClose={() => { setFormOpen(false); setEditProduct(undefined); }} />
         </DialogContent>
       </Dialog>
 
