@@ -311,11 +311,23 @@ export const InventoryPage: React.FC = () => {
       const data = await importFile.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const json: Record<string, string>[] = XLSX.utils.sheet_to_json(sheet);
 
-      if (json.length === 0) { toast.error('File is empty'); setImporting(false); return; }
+      const rawData: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      if (rawData.length < 2) { toast.error('File has no data rows (need header + at least 1 data row)'); setImporting(false); return; }
 
-      const headers = Object.keys(json[0]);
+      const headerRow: string[] = rawData[0].map(h => String(h ?? '').trim());
+      const json: Record<string, string>[] = [];
+      for (let ri = 1; ri < rawData.length; ri++) {
+        const row: Record<string, string> = {};
+        for (let ci = 0; ci < headerRow.length; ci++) {
+          if (headerRow[ci]) row[headerRow[ci]] = String(rawData[ri][ci] ?? '').trim();
+        }
+        if (Object.keys(row).length > 0) json.push(row);
+      }
+
+      if (json.length === 0) { toast.error('No data rows found after header'); setImporting(false); return; }
+
+      const headers = headerRow.filter(Boolean);
       const codePatterns = ['cat id', 'catid', 'item code', 'itemcode', 'sku', 'code', 'item', 'product code', 'product'];
       const barcodePatterns = ['barcode', 'bar code', 'bar_code', 'gtin', 'upc', 'ean'];
       const qtyPatterns = ['quantity', 'qty', 'closing stock', 'stock', 'physical qty', 'physical', 'on hand'];
@@ -374,7 +386,11 @@ export const InventoryPage: React.FC = () => {
       }
 
       if (barcodeGenerated > 0) errors.unshift(`Auto-generated barcodes for ${barcodeGenerated} product(s)`);
-      if (headers.length > 0) errors.unshift(`Detected columns: ${headers.join(', ')}`);
+      if (headers.length > 0) {
+        const sample = json.length > 0 ? Object.entries(json[0]).map(([k, v]) => `${k}="${v}"`).join(', ') : '(no data)';
+        errors.unshift(`Detected columns: ${headers.join(', ')}`);
+        errors.unshift(`First row sample: { ${sample} }`);
+      }
 
       setImportResults({ success, failed, errors });
       if (failed === 0) {
@@ -758,10 +774,14 @@ export const InventoryPage: React.FC = () => {
                   {importResults.failed > 0 && <span className="text-destructive font-medium">✗ {importResults.failed} skipped</span>}
                 </div>
                 {importResults.errors.length > 0 && (
-                  <div className="max-h-32 overflow-y-auto text-xs space-y-0.5">
+                  <div className="max-h-48 overflow-y-auto text-xs space-y-0.5">
                     {importResults.errors.map((e, i) => {
-                      const isInfo = e.startsWith('Detected') || e.startsWith('Auto-generated');
-                      return <p key={i} className={isInfo ? 'text-muted-foreground' : 'text-destructive'}>{e}</p>;
+                      const isInfo = e.startsWith('Detected') || e.startsWith('First row') || e.startsWith('Auto-generated');
+                      const isHeader = e.startsWith('Row');
+                      return <p key={i} className={
+                        isInfo ? 'text-primary font-medium' :
+                        isHeader ? 'text-destructive' : 'text-destructive'
+                      }>{e}</p>;
                     })}
                   </div>
                 )}
