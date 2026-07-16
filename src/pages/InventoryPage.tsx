@@ -440,6 +440,40 @@ export const InventoryPage: React.FC = () => {
     }
   };
 
+  const downloadTemplate = () => {
+    const template = [
+      {
+        'CAT ID': '672103',
+        'ITEM NAME': '6A 3 PIN 2M SOCKET WITH SHUTTER REGULAR BLACK',
+        'BOX STD': 200,
+        'BOX': 8,
+        'PKT STD': 20,
+        'PKT': 11,
+        'LOOSE': 12,
+        'INWARDS': 0,
+        'OUTWARDS': 0,
+        'LOCATION': 'Main Warehouse',
+      },
+      {
+        'CAT ID': '',
+        'ITEM NAME': '',
+        'BOX STD': '',
+        'BOX': '',
+        'PKT STD': '',
+        'PKT': '',
+        'LOOSE': '',
+        'INWARDS': '',
+        'OUTWARDS': '',
+        'LOCATION': '',
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    XLSX.writeFile(wb, 'stock_import_template.xlsx');
+    toast.success('Template downloaded');
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const branchOptions = useMemo(() => [{ value: 'all', label: 'All Branches' }, ...branches.map(b => ({ value: b.id, label: b.name }))], [branches]);
   const warehouseOptions = useMemo(() => [{ value: 'all', label: 'All Warehouses' }, ...warehouses.map(w => ({ value: w.id, label: w.name }))], [warehouses]);
@@ -460,6 +494,9 @@ export const InventoryPage: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-1.5">
+              <FileDown size={14} /> Template
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setImportOpen(true)} className="gap-1.5">
               <Upload size={14} /> Import
             </Button>
