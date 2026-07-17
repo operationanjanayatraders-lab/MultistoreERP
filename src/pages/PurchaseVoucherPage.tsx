@@ -132,93 +132,98 @@ const PurchaseEntryForm: React.FC<{
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const [coRes, whRes, supRes, prodRes, uomRes, settingsRes] = await Promise.all([
-        getCompanies(), getWarehouses(),
-        getSuppliers(1, pageSize), getProducts(1, pageSize),
-        getUomMaster(), getCompanySettings(),
-      ]);
-      setCompanies(coRes.data);
-      setWarehouses(whRes.data);
-      setSuppliers(supRes.data);
-      const prods = prodRes.data.map((p: Product) => ({ ...p, unit: p.unit || 'PCS' }));
-      setAllProducts(prods);
-      setProducts(prods);
-      setUomMaster(uomRes.data);
-      if (settingsRes.data?.financial_year) setFinancialYear(settingsRes.data.financial_year);
-      if (coRes.data.length > 0) setCompanyId(coRes.data[0].id);
-      if (whRes.data.length > 0) setWarehouseId(whRes.data[0].id);
+      try {
+        const [coRes, whRes, supRes, prodRes, uomRes, settingsRes] = await Promise.all([
+          getCompanies(), getWarehouses(),
+          getSuppliers(1, pageSize), getProducts(1, pageSize),
+          getUomMaster(), getCompanySettings(),
+        ]);
+        setCompanies(coRes.data);
+        setWarehouses(whRes.data);
+        setSuppliers(supRes.data);
+        const prods = prodRes.data.map((p: Product) => ({ ...p, unit: p.unit || 'PCS' }));
+        setAllProducts(prods);
+        setProducts(prods);
+        setUomMaster(uomRes.data);
+        if (settingsRes.data?.financial_year) setFinancialYear(settingsRes.data.financial_year);
+        if (coRes.data.length > 0) setCompanyId(coRes.data[0].id);
+        if (whRes.data.length > 0) setWarehouseId(whRes.data[0].id);
 
-      if (editId) {
-        const { data } = await getPurchaseVoucherById(editId);
-        if (data) {
-          setCompanyId(data.company_id || coRes.data[0]?.id || '');
-          setWarehouseId(data.warehouse_id || whRes.data[0]?.id || '');
-          setVoucherDate(data.voucher_date);
-          setVoucherNo(data.voucher_no);
-          setPurchaseType(data.purchase_type || 'regular');
-          setReferenceNo(data.reference_no || '');
-          setReferenceDate(data.reference_date || '');
-          setSupplierId(data.supplier_id);
-          setSupplierInvoiceNo(data.supplier_invoice_no || '');
-          setSupplierInvoiceDate(data.supplier_invoice_date || '');
-          setPlaceOfSupply(data.place_of_supply || '');
-          setGstRegType(data.gst_registration_type || 'registered');
-          setPaymentTerms(data.payment_terms || '');
-          setCreditDays(data.credit_days || 0);
-          setDueDate(data.due_date || '');
-          setGrnNo(data.grn_no || ''); setGrnDate(data.grn_date || '');
-          setChallanNo(data.challan_no || ''); setChallanDate(data.challan_date || '');
-          setTransporter(data.transporter || ''); setVehicleNo(data.vehicle_no || '');
-          setLrRrNo(data.lr_rr_no || ''); setLrRrDate(data.lr_rr_date || '');
-          setEwayBillNo(data.eway_bill_no || ''); setEwayBillDate(data.eway_bill_date || '');
-          setNarration(data.narration || '');
-          setInvoiceDiscountPercent(data.invoice_discount_percent || 0);
-          setFreight(data.freight || 0); setFreightGstPercent(data.freight_gst_percent || 0);
-          setPackingForwarding(data.packing_forwarding || 0); setInsurance(data.insurance || 0);
-          setOtherCharges(data.other_charges || 0);
-          if (data.suppliers) setSupplier(data.suppliers as unknown as Supplier);
+        if (editId) {
+          const { data } = await getPurchaseVoucherById(editId);
+          if (data) {
+            setCompanyId(data.company_id || coRes.data[0]?.id || '');
+            setWarehouseId(data.warehouse_id || whRes.data[0]?.id || '');
+            setVoucherDate(data.voucher_date);
+            setVoucherNo(data.voucher_no);
+            setPurchaseType(data.purchase_type || 'regular');
+            setReferenceNo(data.reference_no || '');
+            setReferenceDate(data.reference_date || '');
+            setSupplierId(data.supplier_id);
+            setSupplierInvoiceNo(data.supplier_invoice_no || '');
+            setSupplierInvoiceDate(data.supplier_invoice_date || '');
+            setPlaceOfSupply(data.place_of_supply || '');
+            setGstRegType(data.gst_registration_type || 'registered');
+            setPaymentTerms(data.payment_terms || '');
+            setCreditDays(data.credit_days || 0);
+            setDueDate(data.due_date || '');
+            setGrnNo(data.grn_no || ''); setGrnDate(data.grn_date || '');
+            setChallanNo(data.challan_no || ''); setChallanDate(data.challan_date || '');
+            setTransporter(data.transporter || ''); setVehicleNo(data.vehicle_no || '');
+            setLrRrNo(data.lr_rr_no || ''); setLrRrDate(data.lr_rr_date || '');
+            setEwayBillNo(data.eway_bill_no || ''); setEwayBillDate(data.eway_bill_date || '');
+            setNarration(data.narration || '');
+            setInvoiceDiscountPercent(data.invoice_discount_percent || 0);
+            setFreight(data.freight || 0); setFreightGstPercent(data.freight_gst_percent || 0);
+            setPackingForwarding(data.packing_forwarding || 0); setInsurance(data.insurance || 0);
+            setOtherCharges(data.other_charges || 0);
+            if (data.suppliers) setSupplier(data.suppliers as unknown as Supplier);
 
-          if (data.purchase_voucher_items) {
-            const loadedLines: LineItem[] = data.purchase_voucher_items.map((item: PurchaseVoucherItem, idx: number) => ({
-              tempId: item.id || `existing_${idx}`,
-              sr_no: item.sr_no || idx + 1,
-              product_id: item.product_id,
-              product_name: (item.products as Product)?.name || '',
-              product_sku: (item.products as Product)?.sku || '',
-              hsn_code: (item.products as Product)?.hsn_code || '',
-              gst_percent: item.gst_percent || (item.products as Product)?.gst_percent || 0,
-              uom_id: item.uom_id || '',
-              uom_name: item.transaction_uom || '',
-              is_base_uom: !item.conversion_factor || item.conversion_factor === 1,
-              conversion_factor: item.conversion_factor || 1,
-              transaction_qty: item.transaction_qty || 0,
-              base_qty: item.base_qty || item.transaction_qty || 0,
-              rate: item.rate || 0,
-              gross_amount: item.gross_amount || 0,
-              discount_percent: item.discount_percent || 0,
-              discount_amount: item.discount_amount || 0,
-              taxable_value: item.taxable_value || 0,
-              cgst_percent: item.cgst_percent || 0, cgst_amount: item.cgst_amount || 0,
-              sgst_percent: item.sgst_percent || 0, sgst_amount: item.sgst_amount || 0,
-              igst_percent: item.igst_percent || 0, igst_amount: item.igst_amount || 0,
-              line_total: item.line_total || 0,
-              location_code: item.location_code || '',
-              batch_no: item.batch_no || '',
-              expiry_date: item.expiry_date || '',
-              remarks: item.remarks || '',
-            }));
-            setLines(loadedLines);
-            const uomMap = new Map<string, ItemUomMapping[]>();
-            for (const item of data.purchase_voucher_items || []) {
-              const pid = item.product_id;
-              if (pid && !uomMap.has(pid)) {
-                const mappings = await getItemUomMappings(pid);
-                uomMap.set(pid, mappings);
+            if (data.purchase_voucher_items) {
+              const loadedLines: LineItem[] = data.purchase_voucher_items.map((item: PurchaseVoucherItem, idx: number) => ({
+                tempId: item.id || `existing_${idx}`,
+                sr_no: item.sr_no || idx + 1,
+                product_id: item.product_id,
+                product_name: (item.products as Product)?.name || '',
+                product_sku: (item.products as Product)?.sku || '',
+                hsn_code: (item.products as Product)?.hsn_code || '',
+                gst_percent: item.gst_percent || (item.products as Product)?.gst_percent || 0,
+                uom_id: item.uom_id || '',
+                uom_name: item.transaction_uom || '',
+                is_base_uom: !item.conversion_factor || item.conversion_factor === 1,
+                conversion_factor: item.conversion_factor || 1,
+                transaction_qty: item.transaction_qty || 0,
+                base_qty: item.base_qty || item.transaction_qty || 0,
+                rate: item.rate || 0,
+                gross_amount: item.gross_amount || 0,
+                discount_percent: item.discount_percent || 0,
+                discount_amount: item.discount_amount || 0,
+                taxable_value: item.taxable_value || 0,
+                cgst_percent: item.cgst_percent || 0, cgst_amount: item.cgst_amount || 0,
+                sgst_percent: item.sgst_percent || 0, sgst_amount: item.sgst_amount || 0,
+                igst_percent: item.igst_percent || 0, igst_amount: item.igst_amount || 0,
+                line_total: item.line_total || 0,
+                location_code: item.location_code || '',
+                batch_no: item.batch_no || '',
+                expiry_date: item.expiry_date || '',
+                remarks: item.remarks || '',
+              }));
+              setLines(loadedLines);
+              const uomMap = new Map<string, ItemUomMapping[]>();
+              for (const item of data.purchase_voucher_items || []) {
+                const pid = item.product_id;
+                if (pid && !uomMap.has(pid)) {
+                  const mappings = await getItemUomMappings(pid);
+                  uomMap.set(pid, mappings);
+                }
               }
+              setAllProductUoms(uomMap);
             }
-            setAllProductUoms(uomMap);
           }
         }
+      } catch (err) {
+        console.error('Failed to load purchase entry data:', err);
+        toast.error('Failed to load data. Please try again.');
       }
       setLoading(false);
     };
@@ -791,12 +796,17 @@ const PurchaseVoucherList: React.FC<{
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [vRes, cRes, sRes] = await Promise.all([
-      getPurchaseVouchers(page, PAGE_SIZE, { status: statusFilter, companyId: companyFilter, supplierId: supplierFilter, search: search || undefined }),
-      getCompanies(), getSuppliers(1, 500),
-    ]);
-    setVouchers(vRes.data); setTotal(vRes.count);
-    setCompanies(cRes.data); setSuppliers(sRes.data);
+    try {
+      const [vRes, cRes, sRes] = await Promise.all([
+        getPurchaseVouchers(page, PAGE_SIZE, { status: statusFilter, companyId: companyFilter, supplierId: supplierFilter, search: search || undefined }),
+        getCompanies(), getSuppliers(1, 500),
+      ]);
+      setVouchers(vRes.data); setTotal(vRes.count);
+      setCompanies(cRes.data); setSuppliers(sRes.data);
+    } catch (err) {
+      console.error('Failed to load purchase vouchers:', err);
+      toast.error('Failed to load vouchers');
+    }
     setLoading(false);
   }, [page, statusFilter, companyFilter, supplierFilter, search]);
 
