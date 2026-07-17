@@ -121,7 +121,7 @@ export const ItemMastersPage: React.FC = () => {
 
   return (
     <MainLayout>
-      <div className="space-y-4">
+      <div className="mx-auto max-w-xl space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Item Masters</h2>
           <button onClick={openAdd}
@@ -131,10 +131,10 @@ export const ItemMastersPage: React.FC = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
+        <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-muted/30 p-1">
           {TABS.map(t => (
             <button key={t.key} onClick={() => { setTab(t.key); setDeleteId(null); }}
-              className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`rounded px-4 py-1.5 text-xs font-medium transition-colors ${
                 tab === t.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
               }`}>
               {t.label}

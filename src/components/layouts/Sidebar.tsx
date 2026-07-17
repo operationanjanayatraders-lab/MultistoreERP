@@ -5,7 +5,7 @@ import {
   AlertTriangle, RotateCcw, RotateCw, BookOpen, Settings, ChevronDown,
   ChevronRight, Menu, X, Building2, Users, Palette, ClipboardList,
   FileText, Receipt, BarChart2, BookMarked, ClipboardCheck,
-  LogOut, UserCircle, Warehouse, Tags
+  LogOut, UserCircle, Warehouse, Tags, FileDown
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -43,7 +43,7 @@ const navItems: NavItem[] = [
     children: [
       { label: 'Sales',               path: '/sales',           icon: <ShoppingCart size={14} />,   permKey: 'Sales' },
       { label: 'Sales Return',        path: '/sales-return',    icon: <RotateCcw size={14} />,      permKey: 'Sales Return' },
-      { label: 'Purchase',            path: '/purchase',        icon: <ShoppingBag size={14} />,    permKey: 'Purchase' },
+      { label: 'Purchase',            path: '/purchase-voucher',icon: <ShoppingBag size={14} />,    permKey: 'Purchase' },
       { label: 'Purchase Return',     path: '/purchase-return', icon: <RotateCw size={14} />,       permKey: 'Purchase Return' },
       { label: 'Damage & Defect',     path: '/damage-defect',   icon: <AlertTriangle size={14} />,  permKey: 'Damage & Defect' },
       { label: 'Physical Stock',      path: '/physical-stock',  icon: <ClipboardCheck size={14} />, permKey: 'Physical Stock' },

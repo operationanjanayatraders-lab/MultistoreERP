@@ -26,6 +26,7 @@ import { BranchesPage } from './pages/BranchesPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { DailyTaskPage } from './pages/DailyTaskPage';
 import { ItemMastersPage } from './pages/ItemMastersPage';
+import { PurchaseVoucherPage } from './pages/PurchaseVoucherPage';
 
 export interface RouteConfig {
   name: string;
@@ -44,7 +45,8 @@ export const routes: RouteConfig[] = [
   { name: 'Item Masters',         path: '/item-masters',           element: <ItemMastersPage /> },
   { name: 'Inventory',            path: '/inventory',              element: <InventoryPage /> },
   { name: 'Sales',                path: '/sales',                  element: <SalesPage /> },
-  { name: 'Purchase',             path: '/purchase',               element: <PurchasePage /> },
+  { name: 'Purchase',             path: '/purchase',               element: <PurchaseVoucherPage /> },
+  { name: 'Purchase Voucher',     path: '/purchase-voucher',       element: <PurchaseVoucherPage /> },
   { name: 'Stock Transfer',       path: '/stock-transfer',         element: <StockTransferPage /> },
   { name: 'Damage & Defect',      path: '/damage-defect',          element: <DamageDefectPage /> },
   { name: 'Sales Return',         path: '/sales-return',           element: <SalesReturnPage /> },
@@ -77,6 +79,7 @@ export const routes: RouteConfig[] = [
   { name: 'Branches & Warehouses', path: '/branches',            element: <BranchesPage /> },
   // Purchase Order (alias to purchase)
   { name: 'Purchase Order',       path: '/purchase-order',         element: <PurchasePage /> },
+  { name: 'Purchase Voucher',     path: '/purchase-voucher',       element: <PurchaseVoucherPage /> },
   { name: 'Daily Tasks',          path: '/daily-tasks',            element: <Navigate to="/daily-tasks/submit" replace /> },
   { name: 'Daily Task Submit',    path: '/daily-tasks/submit',     element: <DailyTaskPage /> },
   { name: 'Daily Task Reports',   path: '/daily-tasks/reports',    element: <DailyTaskPage /> },

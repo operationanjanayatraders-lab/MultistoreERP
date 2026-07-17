@@ -629,3 +629,164 @@ export interface DailyTaskReport {
   daily_task_items?: DailyTaskItem[];
   pending_task_items?: PendingTaskItem[];
 }
+
+// ── UOM Master ───────────────────────────────────────────────
+export interface UomMaster {
+  id: string;
+  name: string;
+  code: string | null;
+  uqc_code: string | null;
+  decimal_precision: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+// ── Item UOM Mapping ─────────────────────────────────────────
+export interface ItemUomMapping {
+  id: string;
+  item_id: string;
+  uom_id: string;
+  is_base_uom: boolean;
+  conversion_factor: number;
+  purchase_allowed: boolean;
+  sales_allowed: boolean;
+  default_purchase_uom: boolean;
+  default_sales_uom: boolean;
+  created_at: string;
+  // joined
+  uom_name?: string;
+  uom_code?: string;
+}
+
+// ── Voucher Ledger Mapping ───────────────────────────────────
+export interface VoucherLedgerMapping {
+  id: string;
+  transaction_type: string;
+  ledger_key: string;
+  account_id: string;
+  company_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  accounts?: Account;
+}
+
+// ── Purchase Voucher ─────────────────────────────────────────
+export interface PurchaseVoucher {
+  id: string;
+  voucher_no: string;
+  voucher_date: string;
+  company_id: string | null;
+  warehouse_id: string | null;
+  voucher_type: string;
+  financial_year: string | null;
+  purchase_type: string | null;
+  reference_no: string | null;
+  reference_date: string | null;
+
+  supplier_id: string;
+  supplier_invoice_no: string | null;
+  supplier_invoice_date: string | null;
+  place_of_supply: string | null;
+  gst_registration_type: string | null;
+  purchase_ledger_id: string | null;
+  payment_terms: string | null;
+  credit_days: number;
+  due_date: string | null;
+
+  purchase_order_id: string | null;
+  purchase_order_date: string | null;
+  grn_no: string | null;
+  grn_date: string | null;
+  challan_no: string | null;
+  challan_date: string | null;
+  transporter: string | null;
+  vehicle_no: string | null;
+  lr_rr_no: string | null;
+  lr_rr_date: string | null;
+  eway_bill_no: string | null;
+  eway_bill_date: string | null;
+
+  gross_amount: number;
+  item_discount_total: number;
+  invoice_discount_percent: number;
+  invoice_discount_amount: number;
+  taxable_value: number;
+  cgst_total: number;
+  sgst_total: number;
+  igst_total: number;
+  cess_total: number;
+  freight: number;
+  freight_gst_percent: number;
+  packing_forwarding: number;
+  insurance: number;
+  other_charges: number;
+  round_off: number;
+  grand_total: number;
+
+  status: 'draft' | 'posted' | 'cancelled';
+  narration: string | null;
+
+  created_by: string | null;
+  created_at: string;
+  modified_by: string | null;
+  modified_at: string | null;
+  posted_by: string | null;
+  posted_at: string | null;
+  cancelled_by: string | null;
+  cancelled_at: string | null;
+
+  voucher_id: string | null;
+
+  // joined
+  companies?: Company;
+  warehouses?: Warehouse;
+  suppliers?: Supplier;
+  purchase_voucher_items?: PurchaseVoucherItem[];
+  voucher?: Voucher;
+}
+
+// ── Purchase Voucher Item ────────────────────────────────────
+export interface PurchaseVoucherItem {
+  id: string;
+  purchase_voucher_id: string;
+  sr_no: number;
+  product_id: string;
+
+  uom_id: string | null;
+  conversion_factor: number;
+  transaction_qty: number;
+  transaction_uom: string | null;
+  base_qty: number;
+  base_uom: string | null;
+
+  rate: number;
+  rate_per: string | null;
+  gross_amount: number;
+
+  discount_percent: number;
+  discount_amount: number;
+
+  taxable_value: number;
+  gst_percent: number;
+  cgst_percent: number;
+  cgst_amount: number;
+  sgst_percent: number;
+  sgst_amount: number;
+  igst_percent: number;
+  igst_amount: number;
+  cess_percent: number;
+  cess_amount: number;
+
+  line_total: number;
+
+  warehouse_id: string | null;
+  location_code: string | null;
+  batch_no: string | null;
+  expiry_date: string | null;
+  remarks: string | null;
+
+  created_at: string;
+
+  // joined
+  products?: Product;
+}

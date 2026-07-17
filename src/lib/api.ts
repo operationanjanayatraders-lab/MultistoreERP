@@ -6,7 +6,8 @@ import type {
   SalesOrder, PurchaseOrder, StockTransfer, DamageRecord,
   SalesReturn, PurchaseReturn, Account, Voucher, Notification, Message,
   PhysicalStockInventory, ProformaInvoice, Quotation, ProductLocation,
-  Unit, BrandMaster, SubBrand, Group
+  Unit, BrandMaster, SubBrand, Group,
+  UomMaster, ItemUomMapping, PurchaseVoucher, PurchaseVoucherItem, VoucherLedgerMapping
 } from '@/types/types';
 
 // ── Profiles ──────────────────────────────────────────────
@@ -1462,6 +1463,420 @@ export const saveDailyTaskReport = async (input: DailyTaskReportInput) => {
 
 export const deleteDailyTaskReport = async (id: string) => {
   return supabase.from('daily_task_reports').delete().eq('id', id);
+};
+
+// ── Purchase Voucher ─────────────────────────────────────────
+export const getPurchaseVouchers = async (page = 1, pageSize = 20, opts?: {
+  status?: string; companyId?: string; supplierId?: string; fromDate?: string; toDate?: string; search?: string;
+}) => {
+  const from = (page - 1) * pageSize;
+  let q = supabase
+    .from('purchase_vouchers')
+    .select('*, companies(id,name), warehouses(id,name), suppliers(id,name), created_by_profile:profiles!purchase_vouchers_created_by_fkey(full_name)', { count: 'exact' })
+    .order('voucher_date', { ascending: false })
+    .range(from, from + pageSize - 1);
+  if (opts?.status && opts.status !== 'all') q = q.eq('status', opts.status);
+  if (opts?.companyId && opts.companyId !== 'all') q = q.eq('company_id', opts.companyId);
+  if (opts?.supplierId && opts.supplierId !== 'all') q = q.eq('supplier_id', opts.supplierId);
+  if (opts?.fromDate) q = q.gte('voucher_date', opts.fromDate);
+  if (opts?.toDate) q = q.lte('voucher_date', opts.toDate);
+  if (opts?.search) {
+    q = q.or(`voucher_no.ilike.%${opts.search}%,supplier_invoice_no.ilike.%${opts.search}%`);
+  }
+  const { data, error, count } = await q;
+  return { data: Array.isArray(data) ? data as PurchaseVoucher[] : [], error, count: count ?? 0 };
+};
+
+export const getPurchaseVoucherById = async (id: string) => {
+  const { data, error } = await supabase
+    .from('purchase_vouchers')
+    .select('*, companies(id,name), warehouses(id,name), suppliers(id,*), purchase_voucher_items(*, products(id,name,sku,barcode,hsn_code,gst_percent,unit,purchase_price)), voucher: voucher_id(*)')
+    .eq('id', id).maybeSingle();
+  return { data: data as PurchaseVoucher | null, error };
+};
+
+export const generatePurchaseVoucherNo = async (companyId: string, financialYear: string) => {
+  const { data, error } = await supabase
+    .rpc('generate_purchase_voucher_no', { p_company_id: companyId, p_financial_year: financialYear });
+  return { data: data as string | null, error };
+};
+
+export const checkDuplicateSupplierInvoice = async (
+  companyId: string, supplierId: string, invoiceNo: string, financialYear: string, excludeId?: string
+) => {
+  const { data, error } = await supabase
+    .rpc('check_duplicate_supplier_invoice', {
+      p_company_id: companyId, p_supplier_id: supplierId,
+      p_supplier_invoice_no: invoiceNo, p_financial_year: financialYear,
+      p_exclude_id: excludeId || null,
+    });
+  const result = data as unknown as { is_duplicate: boolean; existing_voucher_no: string }[] | null;
+  return { data: result?.[0] || { is_duplicate: false, existing_voucher_no: '' }, error };
+};
+
+export const savePurchaseVoucher = async (
+  voucher: Partial<PurchaseVoucher>,
+  items: Array<Omit<Partial<PurchaseVoucherItem>, 'id'>>
+): Promise<{ data: PurchaseVoucher | null; error: unknown }> => {
+  if (voucher.id) {
+    // Update existing draft
+    const { error: delErr } = await supabase.from('purchase_voucher_items').delete().eq('purchase_voucher_id', voucher.id);
+    if (delErr) return { data: null, error: delErr };
+
+    const { data, error } = await supabase
+      .from('purchase_vouchers')
+      .update({ ...voucher, modified_at: new Date().toISOString() })
+      .eq('id', voucher.id)
+      .select()
+      .maybeSingle();
+    if (error || !data) return { data: null, error };
+
+    if (items.length > 0) {
+      const itemsWithId = items.map((it, idx) => ({ ...it, purchase_voucher_id: data.id, sr_no: idx + 1 }));
+      const { error: itemErr } = await supabase.from('purchase_voucher_items').insert(itemsWithId);
+      if (itemErr) return { data: null, error: itemErr };
+    }
+    return { data: data as PurchaseVoucher, error: null };
+  } else {
+    // Create new
+    const { data, error } = await supabase.from('purchase_vouchers').insert(voucher).select().maybeSingle();
+    if (error || !data) return { data: null, error };
+
+    if (items.length > 0) {
+      const itemsWithId = items.map((it, idx) => ({ ...it, purchase_voucher_id: data.id, sr_no: idx + 1 }));
+      const { error: itemErr } = await supabase.from('purchase_voucher_items').insert(itemsWithId);
+      if (itemErr) return { data: null, error: itemErr };
+    }
+    return { data: data as PurchaseVoucher, error: null };
+  }
+};
+
+export const postPurchaseVoucher = async (id: string, userId: string): Promise<{ data: PurchaseVoucher | null; error: unknown }> => {
+  // Fetch full voucher with items
+  const { data: voucher, error: fetchErr } = await getPurchaseVoucherById(id);
+  if (fetchErr || !voucher) return { data: null, error: fetchErr || 'Voucher not found' };
+  if (voucher.status !== 'draft') return { data: null, error: 'Only draft vouchers can be posted' };
+
+  const items = voucher.purchase_voucher_items || [];
+  if (items.length === 0) return { data: null, error: 'Voucher has no items' };
+
+  const errors: string[] = [];
+
+  // 1. Update inventory (increase stock in selected warehouse)
+  const warehouseId = voucher.warehouse_id;
+  if (!warehouseId) return { data: null, error: 'Warehouse is required for posting' };
+
+  for (const item of items) {
+    if (!item.product_id || !item.base_qty) continue;
+    const baseQty = item.base_qty || item.transaction_qty;
+
+    // Upsert inventory record
+    const { data: existing } = await supabase
+      .from('inventory')
+      .select('id, quantity')
+      .eq('product_id', item.product_id)
+      .eq('warehouse_id', warehouseId)
+      .maybeSingle();
+
+    const oldQty = existing?.quantity ?? 0;
+    const newQty = oldQty + baseQty;
+
+    const { error: invErr } = await supabase.from('inventory').upsert(
+      { product_id: item.product_id, warehouse_id: warehouseId, quantity: newQty },
+      { onConflict: 'product_id, warehouse_id' }
+    );
+    if (invErr) errors.push(`Inventory error for ${item.product_id}: ${invErr.message}`);
+
+    // Create inventory transaction
+    const { error: txErr } = await supabase.from('inventory_transactions').insert({
+      transaction_date: voucher.voucher_date,
+      warehouse_id: warehouseId,
+      product_id: item.product_id,
+      transaction_type: 'PURCHASE',
+      quantity: baseQty,
+      unit_price: item.rate || 0,
+      reference_no: voucher.voucher_no,
+      reference_id: voucher.id,
+      remarks: `Purchase voucher ${voucher.voucher_no} | ${item.transaction_qty} ${item.transaction_uom} @ ${item.rate}`,
+      created_by: userId,
+    });
+    if (txErr) errors.push(`Transaction error for ${item.product_id}: ${txErr.message}`);
+  }
+
+  // 2. Create accounting entries
+  const { data: mappings } = await supabase
+    .from('voucher_ledger_mappings')
+    .select('*, accounts(id,code,name)')
+    .eq('transaction_type', 'purchase')
+    .eq('is_active', true);
+
+  const mappingMap = new Map<string, VoucherLedgerMapping>();
+  for (const m of (mappings || []) as VoucherLedgerMapping[]) {
+    mappingMap.set(m.ledger_key, m);
+  }
+
+  const purchaseAcc = mappingMap.get('purchase_account');
+  const inputCgstAcc = mappingMap.get('input_cgst');
+  const inputSgstAcc = mappingMap.get('input_sgst');
+  const inputIgstAcc = mappingMap.get('input_igst');
+  const creditorsAcc = mappingMap.get('sundry_creditors');
+
+  if (!purchaseAcc || !creditorsAcc) {
+    errors.push('Ledger mappings not configured: purchase_account and sundry_creditors are required');
+  }
+
+  if (errors.length > 0) return { data: null, error: errors.join('; ') };
+
+  // Determine GST type: IGST if supplier state differs from company state, else CGST+SGST
+  const supplierState = voucher.place_of_supply || voucher.suppliers?.state || '';
+  const { data: companySettings } = await supabase.from('company_settings').select('*').limit(1).maybeSingle();
+  const companyState = (companySettings as { address?: string } | null)?.address || '';
+
+  const isInterState = supplierState && companyState && supplierState !== companyState;
+
+  // Build voucher items (accounting entries)
+  const accItems: Array<{ account_id: string; debit: number; credit: number; description: string | null }> = [];
+
+  // Debit: Purchase account (taxable value)
+  if (purchaseAcc) {
+    accItems.push({
+      account_id: purchaseAcc.account_id,
+      debit: voucher.taxable_value || 0,
+      credit: 0,
+      description: `Purchase - ${voucher.voucher_no}`,
+    });
+  }
+
+  // Debit: Input GST
+  if (isInterState) {
+    if (inputIgstAcc && (voucher.igst_total || 0) > 0) {
+      accItems.push({
+        account_id: inputIgstAcc.account_id,
+        debit: voucher.igst_total || 0,
+        credit: 0,
+        description: `Input IGST - ${voucher.voucher_no}`,
+      });
+    }
+  } else {
+    if (inputCgstAcc && (voucher.cgst_total || 0) > 0) {
+      accItems.push({
+        account_id: inputCgstAcc.account_id,
+        debit: voucher.cgst_total || 0,
+        credit: 0,
+        description: `Input CGST - ${voucher.voucher_no}`,
+      });
+    }
+    if (inputSgstAcc && (voucher.sgst_total || 0) > 0) {
+      accItems.push({
+        account_id: inputSgstAcc.account_id,
+        debit: voucher.sgst_total || 0,
+        credit: 0,
+        description: `Input SGST - ${voucher.voucher_no}`,
+      });
+    }
+  }
+
+  // Freight with GST
+  if (voucher.freight && voucher.freight > 0) {
+    const freightAccountId = mappingMap.get('freight_account')?.account_id || purchaseAcc?.account_id || '';
+    if (freightAccountId) {
+      accItems.push({
+        account_id: freightAccountId,
+        debit: voucher.freight,
+        credit: 0,
+        description: `Freight - ${voucher.voucher_no}`,
+      });
+      if (voucher.freight_gst_percent && voucher.freight_gst_percent > 0 && inputCgstAcc && inputSgstAcc) {
+        const gstAmt = (voucher.freight * voucher.freight_gst_percent) / 100;
+        if (!isInterState) {
+          accItems.push({ account_id: inputCgstAcc.account_id, debit: gstAmt / 2, credit: 0, description: `Freight CGST` });
+          accItems.push({ account_id: inputSgstAcc.account_id, debit: gstAmt / 2, credit: 0, description: `Freight SGST` });
+        } else if (inputIgstAcc) {
+          accItems.push({ account_id: inputIgstAcc.account_id, debit: gstAmt, credit: 0, description: `Freight IGST` });
+        }
+      }
+    }
+  }
+
+  // Other charges
+  const otherChargesTotal = (voucher.packing_forwarding || 0) + (voucher.insurance || 0) + (voucher.other_charges || 0);
+  if (otherChargesTotal > 0 && purchaseAcc) {
+    accItems.push({
+      account_id: purchaseAcc.account_id,
+      debit: otherChargesTotal,
+      credit: 0,
+      description: `Other charges - ${voucher.voucher_no}`,
+    });
+  }
+
+  // Round off
+  if (voucher.round_off && voucher.round_off !== 0) {
+    const roundOffAccId = mappingMap.get('round_off_account')?.account_id || purchaseAcc?.account_id || '';
+    if (roundOffAccId) {
+      if (voucher.round_off > 0) {
+        accItems.push({ account_id: roundOffAccId, debit: voucher.round_off, credit: 0, description: 'Round Off' });
+      } else {
+        accItems.push({ account_id: roundOffAccId, debit: 0, credit: Math.abs(voucher.round_off), description: 'Round Off' });
+      }
+    }
+  }
+
+  // Credit: Sundry Creditors (total payable)
+  if (creditorsAcc) {
+    accItems.push({
+      account_id: creditorsAcc.account_id,
+      debit: 0,
+      credit: voucher.grand_total || 0,
+      description: `Supplier - ${voucher.suppliers?.name || ''} / ${voucher.voucher_no}`,
+    });
+  }
+
+  // Create the accounting voucher
+  const voucherType = 'debit_note' as const;
+  const vNum = `AC-PUR-${voucher.voucher_no}`;
+  const { data: acVoucher, error: vErr } = await supabase.from('vouchers').insert({
+    voucher_number: vNum,
+    voucher_type: voucherType,
+    voucher_date: voucher.voucher_date,
+    reference: voucher.voucher_no,
+    narration: `Purchase Voucher: ${voucher.voucher_no} - ${voucher.suppliers?.name || ''}`,
+    total_amount: voucher.grand_total || 0,
+    status: 'posted',
+    created_by: userId,
+  }).select().maybeSingle();
+
+  if (vErr || !acVoucher) return { data: null, error: vErr || 'Failed to create accounting voucher' };
+
+  if (accItems.length > 0) {
+    const accItemsWithId = accItems.map(i => ({ ...i, voucher_id: acVoucher.id }));
+    const { error: itemErr } = await supabase.from('voucher_items').insert(accItemsWithId);
+    if (itemErr) {
+      // Cleanup: delete the accounting voucher
+      await supabase.from('vouchers').delete().eq('id', acVoucher.id);
+      return { data: null, error: itemErr };
+    }
+  }
+
+  // Create supplier ledger entry
+  if (creditorsAcc) {
+    await supabase.from('supplier_ledger').insert({
+      supplier_id: voucher.supplier_id,
+      entry_date: voucher.voucher_date,
+      reference_type: 'PURCHASE',
+      reference_id: voucher.id,
+      debit: 0,
+      credit: voucher.grand_total || 0,
+      balance: 0,
+      narration: `Purchase ${voucher.voucher_no}`,
+    });
+  }
+
+  // Update voucher status to posted
+  const { data: updated, error: updateErr } = await supabase
+    .from('purchase_vouchers')
+    .update({
+      status: 'posted', posted_by: userId, posted_at: new Date().toISOString(),
+      voucher_id: acVoucher.id,
+    })
+    .eq('id', id)
+    .select('*, companies(id,name), warehouses(id,name), suppliers(id,*), purchase_voucher_items(*, products(id,name,sku,barcode,hsn_code,gst_percent,unit,purchase_price))')
+    .maybeSingle();
+
+  return { data: updated as PurchaseVoucher | null, error: updateErr };
+};
+
+export const cancelPurchaseVoucher = async (id: string, userId: string): Promise<{ data: PurchaseVoucher | null; error: unknown }> => {
+  const { data: voucher, error: fetchErr } = await getPurchaseVoucherById(id);
+  if (fetchErr || !voucher) return { data: null, error: fetchErr || 'Voucher not found' };
+  if (voucher.status === 'cancelled') return { data: null, error: 'Voucher is already cancelled' };
+
+  const items = voucher.purchase_voucher_items || [];
+  const warehouseId = voucher.warehouse_id;
+  const errors: string[] = [];
+
+  // Reverse inventory
+  if (voucher.status === 'posted' && warehouseId) {
+    for (const item of items) {
+      if (!item.product_id || !item.base_qty) continue;
+      const baseQty = item.base_qty || item.transaction_qty;
+
+      const { data: existing } = await supabase
+        .from('inventory')
+        .select('id, quantity')
+        .eq('product_id', item.product_id)
+        .eq('warehouse_id', warehouseId)
+        .maybeSingle();
+
+      const oldQty = existing?.quantity ?? 0;
+      const newQty = Math.max(0, oldQty - baseQty);
+
+      await supabase.from('inventory').upsert(
+        { product_id: item.product_id, warehouse_id: warehouseId, quantity: newQty },
+        { onConflict: 'product_id, warehouse_id' }
+      );
+
+      await supabase.from('inventory_transactions').insert({
+        transaction_date: new Date().toISOString().split('T')[0],
+        warehouse_id: warehouseId,
+        product_id: item.product_id,
+        transaction_type: 'ADJUSTMENT',
+        quantity: -baseQty,
+        unit_price: item.rate || 0,
+        reference_no: voucher.voucher_no,
+        reference_id: voucher.id,
+        remarks: `Cancelled purchase ${voucher.voucher_no}`,
+        created_by: userId,
+      });
+    }
+  }
+
+  // Cancel the accounting voucher
+  if (voucher.voucher_id) {
+    await supabase.from('vouchers').update({ status: 'cancelled' }).eq('id', voucher.voucher_id);
+  }
+
+  // Update status
+  const { data: updated, error: updateErr } = await supabase
+    .from('purchase_vouchers')
+    .update({ status: 'cancelled', cancelled_by: userId, cancelled_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*, companies(id,name), warehouses(id,name), suppliers(id,*), purchase_voucher_items(*, products(id,name,sku,barcode,hsn_code,gst_percent,unit,purchase_price))')
+    .maybeSingle();
+
+  return { data: updated as PurchaseVoucher | null, error: updateErr };
+};
+
+// ── UOM Master ───────────────────────────────────────────────
+export const getUomMaster = async () => {
+  const { data, error } = await supabase.from('units').select('*').order('name');
+  return { data: Array.isArray(data) ? data as UomMaster[] : [], error };
+};
+
+// ── Item UOM Mappings ────────────────────────────────────────
+export const getItemUomMappings = async (itemId: string) => {
+  const { data } = await supabase.rpc('get_item_uoms', { p_item_id: itemId });
+  return (data || []) as ItemUomMapping[];
+};
+
+export const upsertItemUomMapping = async (mapping: Partial<ItemUomMapping>) => {
+  if (mapping.id) {
+    const { data, error } = await supabase.from('item_uom_mappings').update(mapping).eq('id', mapping.id).select().maybeSingle();
+    return { data, error };
+  }
+  const { data, error } = await supabase.from('item_uom_mappings').insert(mapping).select().maybeSingle();
+  return { data, error };
+};
+
+export const deleteItemUomMapping = async (id: string) => {
+  return supabase.from('item_uom_mappings').delete().eq('id', id);
+};
+
+// ── Voucher Ledger Mappings ─────────────────────────────────
+export const getVoucherLedgerMappings = async (transactionType?: string) => {
+  let q = supabase.from('voucher_ledger_mappings').select('*, accounts(id,code,name)').eq('is_active', true);
+  if (transactionType) q = q.eq('transaction_type', transactionType);
+  const { data, error } = await q;
+  return { data: Array.isArray(data) ? data as VoucherLedgerMapping[] : [], error };
 };
 
 // helper type re-exports used inside api.ts only
